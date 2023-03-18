@@ -1,0 +1,1 @@
+from .distGNN import DistGNNType
