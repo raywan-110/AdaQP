@@ -1,4 +1,5 @@
 import torch
+from enum import Enum
 from torch import Tensor
 from typing import Dict, List, Tuple, Union, NewType
 
@@ -12,17 +13,27 @@ Test_Buffer_Type = NewType('Test_Buffer_Type', List[Basic_Buffer_Type])
 # buffer structure: (layer->pid->(messages, params))
 Train_Buffer_Type = NewType('Train_Buffer_Type', Dict[str, Basic_Buffer_Type])
 # buffer structure (layer->pid->bits->original_idx/original_size)
-Auxillary_Buffer_Type = NewType('Auxillary_Buffer_Type', Dict[str, Dict[int, Dict[int, Union[Tensor, List[int]]]]])
+Auxillary_Buffer_Type = NewType('Auxillary_Buffer_Type', Dict[str, Dict[int, Dict[int, Union[Tensor, Tuple[int, int]]]]])
 
 BITS_SET = (2, 4, 8)
+
+class BitType(Enum):
+    '''
+    bit width type.
+    '''
+    FULL = 0
+    QUANTIZED = 1
+    
 
 class CommBuffer(object):
     '''
     manage the communication buffer for remote messages exchange.
     '''
-    def __init__(self, buffer_shape: List[int], send_idx: Dict[int, Tuple[int, int]], recv_idx: Basic_Buffer_Type, device: torch.device):
+    def __init__(self, buffer_shape: List[int], send_idx: Dict[int, Tuple[int, int]], recv_idx: Basic_Buffer_Type, device: torch.device, bit_type: BitType = BitType.FULL):
         self.buffer_shape = buffer_shape
         self.device = device
+        assert bit_type in [BitType.FULL, BitType.QUANTIZED], f'bit_type should be either FULL or QUANTIZED, but got {bit_type}'
+        self.bit_type = bit_type
         # buffers for remote messages exchange during validation/testing (use full-presicion messages for testing)
         self.test_recv_buffers_cpu: Test_Buffer_Type = []
         self.test_recv_buffers_gpu: Test_Buffer_Type = []
@@ -38,6 +49,31 @@ class CommBuffer(object):
         # generate the buffers for testing
         self._generate_test_buffer(send_idx, recv_idx)
     
+    # getter methods
+    def get_test_buffer(self, idx: int) -> Tuple[Basic_Buffer_Type, Basic_Buffer_Type, Basic_Buffer_Type]:
+        '''
+        get the test buffer ([recv_cpu, recv_gpu, send_cpu]) for validation/testing.
+        '''
+        return self.test_recv_buffers_cpu[idx], self.test_recv_buffers_gpu[idx], self.test_send_buffers_cpu[idx]
+    
+    def get_train_buffer(self, layer: str) -> Tuple[Basic_Buffer_Type, Basic_Buffer_Type, Basic_Buffer_Type]:
+        '''
+        get the train buffer ([recv_cpu, recv_gpu, send_cpu]) for training.
+        '''
+        if self.bit_type == BitType.FULL:
+            idx = int(layer[-1])
+            return self.get_test_buffer(idx)
+        elif self.bit_type == BitType.QUANTIZED:
+            return self.train_recv_buffers_cpu[layer], self.train_recv_buffers_gpu[layer], self.train_send_buffers_cpu[layer]
+    
+    def get_auxillary_buffer(self, layer: str) -> Tuple[Dict[int, Dict[int, Tensor]], Dict[int, Dict[int, Tuple[int, int]]], Dict[int, Dict[int, Tuple[int, int]]]]:
+        '''
+        get the auxillary buffer ([recv_orig_idx, recv_size__idx, send_orig_idx]) for training.
+        '''
+        return self.recv_original_idx_buffers[layer], self.recv_original_size_buffers[layer], self.send_original_idx_buffers[layer]
+        
+
+    # delete buffer methods
     def _delete_buffer_tensors(self, buffer_tensors: Union[Test_Buffer_Type, Train_Buffer_Type, Auxillary_Buffer_Type]):
         '''
         delete the dict of tensors.
@@ -87,7 +123,17 @@ class CommBuffer(object):
         self.train_recv_buffers_cpu = {}
         self.train_recv_buffers_gpu = {}
         self.train_send_buffers_cpu = {}
+    
+    def _delete(self):
+        '''
+        delete the communication buffer.
+        '''
+        self._delete_test_buffer()
+        self._delete_train_buffer()
+        torch.cuda.empty_cache()  # empty the cuda cache
+        print(f'<worker{comm.get_rank()} buffer delete done.>')
 
+    # generate buffer methods
     def _generate_test_buffer(self, send_idx: Dict[int, Tuple[int, int]], recv_idx: Basic_Buffer_Type):
         '''
         generate the test communication buffer for validation/testing.
@@ -184,24 +230,12 @@ class CommBuffer(object):
                     self.train_recv_buffers_gpu[layer][pid] = (recv_qdata_gpu, recv_qparams_gpu)
 
 
-    def _update(self, mode='vanilla', *args, **kwargs):
+    def _update(self, *args, **kwargs):
         '''
         update the communication buffer for training.
         '''
-        if mode == 'vanilla':
-            self.train_recv_buffers_cpu = self.test_recv_buffers_cpu
-            self.train_recv_buffers_gpu = self.test_recv_buffers_gpu
-            self.train_send_buffers_cpu = self.test_send_buffers_cpu
+        if self.bit_type == BitType.FULL:
+            pass
         else:
             self._generate_train_buffer(*args, **kwargs)
         print(f'<worker{comm.get_rank()} buffer update done.>')
-        
-
-    def _delete(self):
-        '''
-        delete the communication buffer.
-        '''
-        self._delete_test_buffer()
-        self._delete_train_buffer()
-        torch.cuda.empty_cache()  # empty the cuda cache
-        print(f'<worker{comm.get_rank()} buffer delete done.>')

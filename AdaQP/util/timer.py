@@ -1,21 +1,22 @@
 import time
 import torch
 import os
-import torch.distributed as dist
-import numpy as np
 from contextlib import contextmanager
+
+from ..communicator import BitType
+from ..communicator import Communicator as comm
 
 
 class Timer(object):
 
-    def __init__(self):
+    def __init__(self, device: torch.device):
         super(Timer, self).__init__()
         self._record = {}
         self._total_record = []
-        self.device = None
+        self.device = device
 
     @contextmanager
-    def record(self, name):
+    def record(self, name: str):
         if name in self._record:
             raise Exception(f'{name} already exists')
         torch.cuda.current_stream(self.device).synchronize()
@@ -49,15 +50,17 @@ class Timer(object):
                 raise KeyError(f'no {name} key')
         return [total_com, total_quant + total_dequant, total_central_agg, total_marginal_agg, total_full_agg]
 
-    def clear(self, is_train=True):
+    def clear(self, is_train: bool = True):
         # store in the _total_record for backup
         if is_train:
             self._total_record.append(self.epoch_time())
         self._record = {}
 
-    def persist(self, run, bits):
-        dir = 'time_record'
-        if not os.path.exists(dir):
-            os.mkdir(dir)
-        np.save(file=f'{dir}/run{run}_{bits}bits_worker{dist.get_rank()}_time_record.npy', arr=self._total_record)
+    def persist(self, run: int, bit_type: BitType, exp_dir: str = 'exp'):
+        store_dir = f'{exp_dir}/time_record'
+        mode = 'full' if bit_type == BitType.FULL else 'quantized'
+        if not os.path.exists(store_dir):
+            os.mkdir(store_dir)
+        torch.save(self._total_record, f'{store_dir}/run{run}_{mode}worker{comm.get_rank()}_time_record.pt')
+
         self._total_record = []

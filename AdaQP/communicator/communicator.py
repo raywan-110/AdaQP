@@ -23,9 +23,9 @@ class Communicator(object):
     '''
     def __init__(self, local_world_size, backend: str ='gloo', init_method: str ='env://'):
         self._init(backend, init_method)
-        self.local_world_size = local_world_size
-        self.comm_buffer = None
-        # make class ctx property to be the communicator itself (do not share across processes)
+        self._local_world_size = local_world_size
+        self.comm_buffer: CommBuffer = None
+        # set ctx (do not share across processes)
         Communicator.ctx = self 
 
     def _init(self, backend: str, init_method: str):
@@ -35,21 +35,37 @@ class Communicator(object):
         if backend is not 'gloo':
             raise NotImplementedError('only gloo is supported now')
         dist.init_process_group(backend, init_method="env://")
-        self.backend = backend
-        self.init_method = init_method
-        self.local_rank = int(os.environ['LOCAL_RANK'])
-        self.device = torch.device(f'cuda: {self.local_rank}')
+        self._backend = backend
+        self._init_method = init_method
+        self._local_rank = int(os.environ['LOCAL_RANK'])
+        self._device = torch.device(f'cuda: {self.local_rank}')
         torch.cuda.set_device(self.device)
         logging.info(f'<worker{dist.get_rank()}> device: {self.device}')
 
-    def get_local_rank(self):
-        return self.local_rank
+    # getter methods
+    @property
+    def local_rank(self):
+        return self._local_rank
 
-    def get_local_world_size(self):
-        return self.local_world_size
+    @property
+    def local_world_size(self):
+        return self._local_world_size
     
-    def get_device(self):
-        return self.device
+    @property
+    def device(self):
+        return self._device
+    
+    @property
+    def init_method(self):
+        return self._init_method
+    
+    @property
+    def backend(self):
+        return self._backend
+    
+    @property
+    def device(self):
+        return self._device
     
     def __repr__(self):
         return f'<Communicator(backend={self.backend}, rank={self.get_rank()}, world_size={self.get_world_size()}, local_rank={self.local_rank}, local_world_size={self.local_world_size}, device={self.device})>'
