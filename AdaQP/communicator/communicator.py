@@ -40,9 +40,16 @@ class Communicator(object):
         self._local_rank = int(os.environ['LOCAL_RANK'])
         self._device = torch.device(f'cuda: {self.local_rank}')
         torch.cuda.set_device(self.device)
-        logging.info(f'<worker{dist.get_rank()}> device: {self.device}')
 
-    # getter methods
+    def __repr__(self):
+        return f'<Communicator(rank: {self.get_rank()}, backend: {self.backend}, world_size: {self.get_world_size()}, local_rank: {self.local_rank}, local_world_size: {self.local_world_size}, device: {self.device})>'
+
+    '''
+    *************************************************
+    ***************** getter methods ****************
+    *************************************************
+    '''
+    
     @property
     def local_rank(self):
         return self._local_rank
@@ -62,13 +69,6 @@ class Communicator(object):
     @property
     def backend(self):
         return self._backend
-    
-    @property
-    def device(self):
-        return self._device
-    
-    def __repr__(self):
-        return f'<Communicator(backend={self.backend}, rank={self.get_rank()}, world_size={self.get_world_size()}, local_rank={self.local_rank}, local_world_size={self.local_world_size}, device={self.device})>'
 
     @staticmethod
     def get_rank():
@@ -93,14 +93,18 @@ class Communicator(object):
     def barrier():
         dist.barrier()
 
-    # collective primitives
+    '''
+    *************************************************
+    ************* collective primitives *************
+    *************************************************
+    '''
+
     @staticmethod
     def all_reduce_max(tensor: Tensor):
         '''
         all reduce the tensor with max operation.
         '''
         dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
-        return tensor
     
     @staticmethod
     def all_reduce_sum(tensor: Tensor):
@@ -108,7 +112,6 @@ class Communicator(object):
         all reduce the tensor with sum operation.
         '''
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-        return tensor
 
     @staticmethod
     def all_gather_any(obj_list: List[Any], obj: Any):
@@ -118,11 +121,23 @@ class Communicator(object):
         dist.all_gather_object(obj_list, obj)
     
     @staticmethod
+    def broadcast_any(obj_list: List[Any], src: int = 0):
+        '''
+        broadcast objects to all the workers
+        '''
+        dist.broadcast_object_list(obj_list, src)
+        
+    
+    @staticmethod
     def scatter_any(output_list: List[Any], input_list: List[Any], src: int = 0):
         '''
         scatter objects from input_list to output_list. (only support by gloo backend)
         '''
         dist.scatter_object_list(output_list, input_list, src)
+    
+    @staticmethod
+    def gather_any(obj, obj_list: List[Any], dst: int = 0):
+        dist.gather_object(obj, obj_list, dst)
 
     # p2p primitives
     @staticmethod
@@ -138,8 +153,13 @@ class Communicator(object):
         receive tensor from src asynchronously.
         '''
         dist.irecv(tensor, src, tag=tag.value)
-    
-    # messages exchange functions (all2all collective communication)
+
+    '''
+    *************************************************
+    *********** messages exchange methods ***********
+    *************************************************
+    '''
+
     def fp_msg_exchange(self, recv_buffer_cpu: Basic_Buffer_Type, recv_buffer_gpu: Basic_Buffer_Type, send_buffer_cpu: Basic_Buffer_Type, send_idx: Dict[int, Tuple[int, int]], send_messages: Tensor):
         '''
         all-to-all full-precision message exchange across all the worker
@@ -197,12 +217,17 @@ class Communicator(object):
         for r in req_send:
             r.wait()
     
-    # buffer management 
+    '''
+    *************************************************
+    *********** buffer management methods ***********
+    *************************************************
+    '''
+
     def init_buffer(self, *args, **kwargs):
         '''
         wrapper to initialize the communication buffer
         '''
-        self.comm_buffer = CommBuffer(*args, **kwargs)
+        self.comm_buffer = CommBuffer(*args, **kwargs, device=self.device)
     
     def update_buffer(self, *args, **kwargs):
         '''

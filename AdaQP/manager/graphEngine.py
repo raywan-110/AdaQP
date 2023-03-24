@@ -3,7 +3,7 @@ import dgl
 from typing import Tuple, Union
 from dgl import DGLHeteroGraph
 
-from ..util import Timer
+from ..util import Timer, Recorder
 from .conversion import *
 from .processing import *
 from ..communicator import BitType
@@ -13,7 +13,7 @@ class GraphEngine(object):
     '''
     manage the graph and all kind of nodes feats (e.g., features, labels, mask, etc.).
     '''
-    def __init__(self, part_dir='part_data', dataset='dataset', msg_precision_type: str = 'full', use_parallel=False):
+    def __init__(self, epoches: int, part_dir='part_data', dataset='dataset', msg_precision_type: str = 'full', use_parallel=False):
         # load original graph and feats
         original_graph, original_feats, gpb, is_bidirected = convert_partition(part_dir, dataset)
         # get send_idx, recv_idx, and scores
@@ -26,7 +26,6 @@ class GraphEngine(object):
         num_inner = torch.count_nonzero(reordered_feats['inner_node']).item()
         num_remote = reordered_graph.num_nodes() - num_inner
         assert num_inner == num_central + num_marginal
-        logging.info(f'<worker{comm.get_rank()} local graph total nodes: {reordered_graph.num_nodes()} edges: {reordered_graph.num_edges()} remote nodes: {num_remote} central nodes: {num_central} marginal nodes: {num_marginal}>')        
         # TODO decompose local graph according to the `use_parallel` flag
         if use_parallel:
             pass
@@ -37,14 +36,17 @@ class GraphEngine(object):
         self._use_parallel = use_parallel
         if msg_precision_type == 'full':
             self._bit_type = BitType.FULL
-        elif msg_precision_type == 'quantized':
-            self._bit_type = BitType.QUANTIZED
+        elif msg_precision_type == 'quant':
+            self._bit_type = BitType.QUANT
         else:
-            raise NotImplementedError(f'only full and quantized are supported now, {msg_precision_type} is undifined.')
+            raise NotImplementedError(f'only full and quant are supported now, {msg_precision_type} is undifined.')
         # set node info and idx
         self._num_remove, self._num_inner, self._num_marginal, self._num_central = num_remote, num_inner, num_marginal, num_central
         self._send_idx, self._recv_idx, self._scores = send_idx, recv_idx, scores
         self._total_send_idx = total_idx
+        # set feats and labels
+        self._feats = reordered_feats['feat']
+        self._labels = reordered_feats['label']
         # set masks
         self._train_mask = torch.nonzero(reordered_feats['train_mask']).squeeze()
         self._val_mask = torch.nonzero(reordered_feats['val_mask']).squeeze()
@@ -52,24 +54,31 @@ class GraphEngine(object):
         # set device
         self._device = comm.ctx.device
         # set forward graph and nodes feats
-        self._graph = reordered_graph
+        self.graph = reordered_graph
         self._nodes_feats = reordered_feats
         # set backward graph
-        self._bwd_graph = self._get_bp_graph(reordered_graph, use_parallel, is_bidirected)
+        self.bwd_graph = self._get_bp_graph(reordered_graph, use_parallel, is_bidirected)
         # pop unnecessary feats
+        self._nodes_feats.pop('in_degrees')
+        self._nodes_feats.pop('out_degrees')
+        self._nodes_feats.pop('feat')
+        self._nodes_feats.pop('label')
         self._nodes_feats.pop('train_mask')
         self._nodes_feats.pop('val_mask')
         self._nodes_feats.pop('test_mask')
         self._nodes_feats.pop('part_id')
-        self._nodes_feats.pop(dgl.NID)
-        self._nodes_feats.pop('feat')
-        self._nodes_feats.pop('label')        
+        self._nodes_feats.pop(dgl.NID)   
         # move to device
         self._move()
         # init the timer for recording the time cost
         self.timer = Timer(device=self._device)
+        # init the recorder for recording metrics
+        self.recorder = Recorder(epoches)
         # graphSAGE aggregator type if needed
         self._agg_type: str = None
+    
+    def __repr__(self):
+        return  f'<GraphEngine(rank: {comm.get_rank()}, total nodes: {self.graph.num_nodes()}, edges: {self.graph.num_edges()} remote nodes: {self.num_remove} central nodes: {self.num_central}, marginal nodes: {self.num_marginal})>'
 
     def _get_bp_graph(self, fp_graph: Union[DGLHeteroGraph, Tuple[DGLHeteroGraph, DGLHeteroGraph]], use_parallel: bool, is_bidirected: bool) -> DGLHeteroGraph:
         if use_parallel:
@@ -88,11 +97,35 @@ class GraphEngine(object):
             self._graph = self._graph.to(self._device)
             if not self._is_bidirected:
                 self.bp_graph = self.bp_graph.to(self._device)
-            self._nodes_feats['feat'] = self._nodes_feats['feat'].to(self._device)
-            self._nodes_feats['label'] = self._nodes_feats['label'].to(self._device)
+            self._feats = self._feats.to(self._device)
+            self._labels = self._labels.to(self._device)
     
+    '''
+    *************************************************
+    ***************** getter methods ****************
+    *************************************************
+    '''
 
-    # getter methods
+    @property
+    def feats(self):
+        return self._feats['feat']
+    
+    @property
+    def labels(self):
+        return self._labels['label']
+    
+    @property
+    def train_mask(self):
+        return self._train_mask
+    
+    @property
+    def val_mask(self):
+        return self._val_mask
+    
+    @property
+    def test_mask(self):
+        return self._test_mask
+
     @property
     def device(self):
         return self._device
@@ -113,6 +146,10 @@ class GraphEngine(object):
     def agg_type(self):
         assert self._agg_type is not None, 'please set the aggregator type first.'
         return self._agg_type
+    
+    @agg_type.setter
+    def agg_type(self, agg_type: str):
+        self._agg_type = agg_type
     
     @property
     def num_remove(self):
@@ -145,10 +182,7 @@ class GraphEngine(object):
     @property
     def total_send_idx(self):
         return self._total_send_idx
-    
-    @property
-    def bwd_graph(self):
-        return self._bwd_graph
+
 
     
         

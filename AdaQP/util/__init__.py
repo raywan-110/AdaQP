@@ -1,2 +1,2 @@
-from .logger import Logger
+from .recorder import Recorder
 from .timer import Timer

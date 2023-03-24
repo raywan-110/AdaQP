@@ -1,0 +1,27 @@
+data:
+  name: reddit
+  dataset_path: data/dataset
+  partition_path: data/part_data
+  num_feats: 602
+  num_classes: 41
+  is_multilabel: false
+model:
+  num_layers: 3
+  hidden_dim: 256
+  dropout_rate: 0.5
+  use_norm: true
+  aggregator_type: mean # default setting for graphsage
+runtime:
+  model_name: gcn
+  learning_rate: 0.01
+  weight_devay: 0
+  num_epoches: 500
+  mode: AdaQP
+  exp_path: exp
+  logger_level: INFO
+  log_steps: 10
+assignment:
+  profile_times: 100 # times for profiling to get bandwidth between workers
+  profile_data_length: 200 
+  group_size: 100
+  coe_lambda: 0.5

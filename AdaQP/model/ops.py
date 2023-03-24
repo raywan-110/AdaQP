@@ -66,7 +66,7 @@ def SAGE_aggregation(graph: dgl.DGLGraph, feats: Tensor, mode: ProprogationMode 
             raise ValueError(f'Invalid mode {mode}')
         return h_neigh
 
-class distAggConv(Function):
+class DistAggConv(Function):
     '''
     customized distributed aggregation Function class which aggregates features from both local and remote neighbors for GCN.
     '''
@@ -101,7 +101,7 @@ class distAggConv(Function):
         return_gradients = rst[:len_local]
         return return_gradients, None, None, None
 
-class distAggSAGE(Function):
+class DistAggSAGE(Function):
     '''
     customized distributed aggregation Function class which aggregates features from both local and remote neighbors for GraphSAGE.
     '''

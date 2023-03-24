@@ -7,13 +7,13 @@ from torch.nn import init
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .ops import distAggConv
+from .ops import DistAggConv
 
-class distGCNConv(nn.Module):
-    '''distGCNConv layer transmits 1-hop features(embeddings) and gradients during forward and backward pass'''
+class DistGCNConv(nn.Module):
+    '''DistGCNConv layer transmits 1-hop features(embeddings) and gradients during forward and backward pass'''
 
     def __init__(self, in_feats: int, out_feats: int, weight=True, bias: bool = True, activation: Any = None):
-        super(distGCNConv, self).__init__()
+        super(DistGCNConv, self).__init__()
         self._in_feats = in_feats
         self._out_feats = out_feats
         if weight:
@@ -39,7 +39,7 @@ class distGCNConv(nn.Module):
     def forward(self, feats: Tensor, graph: DGLHeteroGraph, layer: int) -> Tensor:
         weight = self.weight
         # call distAggConv.forward() to aggregate first then mult W
-        rst = distAggConv.apply(feats, graph, layer, self.training)
+        rst = DistAggConv.apply(feats, graph, layer, self.training)
         if weight is not None:
             rst = torch.matmul(rst, weight)  # calculate on GPU
         if self.bias is not None:
@@ -48,21 +48,21 @@ class distGCNConv(nn.Module):
             rst = self._activation(rst)
         return rst
 
-class distGCN(nn.Module):
+class DistGCN(nn.Module):
     def __init__(self, in_feats: int, h_feats: int, num_classes: int, num_layers: int, drop_rate: float, use_norm: bool = True):
-        super(distGCN, self).__init__()
+        super(DistGCN, self).__init__()
         self.convs = nn.ModuleList()
-        self.convs.append(distGCNConv(in_feats, h_feats))
+        self.convs.append(DistGCNConv(in_feats, h_feats))
         if use_norm:
             self.norms = nn.ModuleList()
             self.norms.append(nn.LayerNorm(h_feats))
         # append hidden layers
         for _ in range(num_layers - 2):
-            self.convs.append(distGCNConv(h_feats, h_feats))
+            self.convs.append(DistGCNConv(h_feats, h_feats))
             if use_norm:
                 self.norms.append(nn.LayerNorm(h_feats))
         # append last layer
-        self.convs.append(distGCNConv(h_feats, num_classes))
+        self.convs.append(DistGCNConv(h_feats, num_classes))
         # set drop rate
         self.drop_rate = drop_rate
 

@@ -22,17 +22,17 @@ class BitType(Enum):
     bit width type.
     '''
     FULL = 0
-    QUANTIZED = 1
+    QUANT = 1
     
 
 class CommBuffer(object):
     '''
     manage the communication buffer for remote messages exchange.
     '''
-    def __init__(self, buffer_shape: List[int], send_idx: Dict[int, Tuple[int, int]], recv_idx: Basic_Buffer_Type, device: torch.device, bit_type: BitType = BitType.FULL):
+    def __init__(self, buffer_shape: List[int], send_idx: Dict[int, Tuple[int, int]], recv_idx: Basic_Buffer_Type, bit_type: BitType, device: torch.device):
         self.buffer_shape = buffer_shape
         self.device = device
-        assert bit_type in [BitType.FULL, BitType.QUANTIZED], f'bit_type should be either FULL or QUANTIZED, but got {bit_type}'
+        assert bit_type in [BitType.FULL, BitType.QUANT], f'bit_type should be either FULL or QUANT, but got {bit_type}'
         self.bit_type = bit_type
         # buffers for remote messages exchange during validation/testing (use full-presicion messages for testing)
         self.test_recv_buffers_cpu: Test_Buffer_Type = []
@@ -49,7 +49,12 @@ class CommBuffer(object):
         # generate the buffers for testing
         self._generate_test_buffer(send_idx, recv_idx)
     
-    # getter methods
+    '''
+    *************************************************
+    ***************** getter methods ****************
+    *************************************************
+    '''
+
     def get_test_buffer(self, idx: int) -> Tuple[Basic_Buffer_Type, Basic_Buffer_Type, Basic_Buffer_Type]:
         '''
         get the test buffer ([recv_cpu, recv_gpu, send_cpu]) for validation/testing.
@@ -63,7 +68,7 @@ class CommBuffer(object):
         if self.bit_type == BitType.FULL:
             idx = int(layer[-1])
             return self.get_test_buffer(idx)
-        elif self.bit_type == BitType.QUANTIZED:
+        elif self.bit_type == BitType.QUANT:
             return self.train_recv_buffers_cpu[layer], self.train_recv_buffers_gpu[layer], self.train_send_buffers_cpu[layer]
     
     def get_auxillary_buffer(self, layer: str) -> Tuple[Dict[int, Dict[int, Tensor]], Dict[int, Dict[int, Tuple[int, int]]], Dict[int, Dict[int, Tuple[int, int]]]]:
@@ -72,8 +77,12 @@ class CommBuffer(object):
         '''
         return self.recv_original_idx_buffers[layer], self.recv_original_size_buffers[layer], self.send_original_idx_buffers[layer]
         
+    '''
+    *************************************************
+    ***************** delete methods ****************
+    *************************************************
+    '''
 
-    # delete buffer methods
     def _delete_buffer_tensors(self, buffer_tensors: Union[Test_Buffer_Type, Train_Buffer_Type, Auxillary_Buffer_Type]):
         '''
         delete the dict of tensors.
@@ -133,7 +142,12 @@ class CommBuffer(object):
         torch.cuda.empty_cache()  # empty the cuda cache
         print(f'<worker{comm.get_rank()} buffer delete done.>')
 
-    # generate buffer methods
+    '''
+    *************************************************
+    ***************** setter methods ****************
+    *************************************************
+    '''
+    
     def _generate_test_buffer(self, send_idx: Dict[int, Tuple[int, int]], recv_idx: Basic_Buffer_Type):
         '''
         generate the test communication buffer for validation/testing.
@@ -229,6 +243,11 @@ class CommBuffer(object):
                     self.train_recv_buffers_cpu[layer][pid] = (recv_qdata_cpu, recv_qparams_cpu)
                     self.train_recv_buffers_gpu[layer][pid] = (recv_qdata_gpu, recv_qparams_gpu)
 
+    '''
+    *************************************************
+    *************** external interface **************
+    *************************************************
+    '''
 
     def _update(self, *args, **kwargs):
         '''

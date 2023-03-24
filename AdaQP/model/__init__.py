@@ -1,7 +1,8 @@
 from enum import Enum
-from .distGCN import distGCN
-from .distSAGE import distSAGE
+
+from .distGCN import DistGCN
+from .distSAGE import DistSAGE
 
 class DistGNNType(Enum):
     DistGCN = 0
-    DistGraphSAGE = 1
+    DistSAGE = 1

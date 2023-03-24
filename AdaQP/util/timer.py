@@ -13,20 +13,20 @@ class Timer(object):
         super(Timer, self).__init__()
         self._record = {}
         self._total_record = []
-        self.device = device
+        self._device = device
 
     @contextmanager
     def record(self, name: str):
         if name in self._record:
             raise Exception(f'{name} already exists')
-        torch.cuda.current_stream(self.device).synchronize()
+        torch.cuda.current_stream(self._device).synchronize()
         start = time.time()
         yield
-        torch.cuda.current_stream(self.device).synchronize()
+        torch.cuda.current_stream(self._device).synchronize()
         end = time.time()
         self._record[name] = (start, end)
 
-    def epoch_time(self):
+    def epoch_traced_time(self):
         total_com = 0
         total_quant = 0
         total_dequant = 0
@@ -53,12 +53,12 @@ class Timer(object):
     def clear(self, is_train: bool = True):
         # store in the _total_record for backup
         if is_train:
-            self._total_record.append(self.epoch_time())
+            self._total_record.append(self.epoch_traced_time())
         self._record = {}
 
     def persist(self, run: int, bit_type: BitType, exp_dir: str = 'exp'):
         store_dir = f'{exp_dir}/time_record'
-        mode = 'full' if bit_type == BitType.FULL else 'quantized'
+        mode = 'full' if bit_type == BitType.FULL else 'quant'
         if not os.path.exists(store_dir):
             os.mkdir(store_dir)
         torch.save(self._total_record, f'{store_dir}/run{run}_{mode}worker{comm.get_rank()}_time_record.pt')

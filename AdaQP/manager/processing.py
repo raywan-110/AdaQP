@@ -74,7 +74,7 @@ def graph_patition_store(dataset: str, partition_size: int, raw_dir: str = 'data
     torch.save(in_degrees, f'{save_dir}/in_degrees.pt')
     torch.save(out_degrees, f'{save_dir}/out_degrees.pt')
     # partition the whole graph
-    logging.info('begin partition...')
+    logging.info('<begin partition...>')
     dgl.distributed.partition_graph(graph, graph_name=dataset, num_parts=partition_size,
                                     out_path=partition_dir, num_hops=1, balance_edges=False)
 
