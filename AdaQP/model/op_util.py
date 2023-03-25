@@ -1,10 +1,11 @@
 import torch
-from typing import Dict, List, Union, Tuple
+from typing import Dict, Tuple
 from typing import Tuple
 from torch import Tensor
-
-from ..communicator import BitType, Basic_Buffer_Type
 import quant_cuda as integer_quantizer
+
+from ..helper import BitType
+from ..communicator import Basic_Buffer_Type
 from ..communicator import Communicator as comm
 from ..manager import GraphEngine as engine
 
@@ -93,10 +94,10 @@ def msg_all2all_GLOO(local_messages: Tensor, name: str, is_train: bool = True) -
     # get necessary params
     msg_dim = local_messages.shape[-1]
     msg_dtype = local_messages.dtype
-    bit_type = engine.bit_type
-    num_remote = engine.num_remove
-    send_idx = engine.send_idx
-    recv_idx = engine.recv_idx
+    bit_type = engine.ctx.bit_type
+    num_remote = engine.ctx.num_remove
+    send_idx = engine.ctx.send_idx
+    recv_idx = engine.ctx.recv_idx
     if bit_type == BitType.FULL or not is_train:
         return fp_msg_transfer_process(local_messages, send_idx, recv_idx, msg_dim, msg_dtype, num_remote, name, is_train)
     else:

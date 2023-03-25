@@ -1,10 +1,12 @@
 import torch
-from enum import Enum
+import logging
 from torch import Tensor
 from typing import Dict, List, Tuple, Union, NewType
+import torch.distributed as dist
 
-from .communicator import Communicator as comm
+from ..helper import BitType
 
+logger = logging.getLogger('trainer')
 # typing definition
 # buffer structure: (pid->messages/(messages, params))
 Basic_Buffer_Type = NewType('Basic_Buffer_Type', Dict[int, Union[Tensor, Tuple[Tensor, Tensor]]]) 
@@ -17,15 +19,7 @@ Auxillary_Buffer_Type = NewType('Auxillary_Buffer_Type', Dict[str, Dict[int, Dic
 
 BITS_SET = (2, 4, 8)
 
-class BitType(Enum):
-    '''
-    bit width type.
-    '''
-    FULL = 0
-    QUANT = 1
-    
-
-class CommBuffer(object):
+class CommBuffer:
     '''
     manage the communication buffer for remote messages exchange.
     '''
@@ -140,7 +134,7 @@ class CommBuffer(object):
         self._delete_test_buffer()
         self._delete_train_buffer()
         torch.cuda.empty_cache()  # empty the cuda cache
-        print(f'<worker{comm.get_rank()} buffer delete done.>')
+        logger.info(f'<worker{dist.get_rank()} buffer delete done.>')
 
     '''
     *************************************************
@@ -154,21 +148,21 @@ class CommBuffer(object):
         '''
         # generate the sending buffer
         for dim_size in self.buffer_shape:
-            temp_buffer: Dict[int, Tensor] = {}
+            send_temp_buffer: Dict[int, Tensor] = {}
             for pid, idx in send_idx.items():
                 num_nodes = idx[1] - idx[0]
-                temp_buffer[pid] = torch.zeros((num_nodes, dim_size), dtype=torch.float32).pin_memory(self.device)
-            self.test_send_buffers_cpu.append(temp_buffer)
+                send_temp_buffer[pid] = torch.zeros((num_nodes, dim_size), dtype=torch.float32).pin_memory(self.device)
+            self.test_send_buffers_cpu.append(send_temp_buffer)
         # generate the receiving buffer
         for dim_size in self.buffer_shape:
-            temp_buffer_cpu: Dict[int, Tensor] = {}
-            temp_buffer_gpu: Dict[int, Tensor] = {}
+            recv_temp_buffer_cpu: Dict[int, Tensor] = {}
+            recv_temp_buffer_gpu: Dict[int, Tensor] = {}
             for pid, idx in recv_idx.items():
                 num_nodes = len(idx)
-                temp_buffer_cpu[pid] = torch.zeros((num_nodes, dim_size), dtype=torch.float32).pin_memory(self.device)
-                temp_buffer_gpu[pid] = torch.zeros((num_nodes, dim_size), dtype=torch.float32, device=self.device)
-            self.test_recv_buffers_cpu.append(temp_buffer)
-            self.test_recv_buffers_gpu.append(temp_buffer_gpu)
+                recv_temp_buffer_cpu[pid] = torch.zeros((num_nodes, dim_size), dtype=torch.float32).pin_memory(self.device)
+                recv_temp_buffer_gpu[pid] = torch.zeros((num_nodes, dim_size), dtype=torch.float32, device=self.device)
+            self.test_recv_buffers_cpu.append(recv_temp_buffer_cpu)
+            self.test_recv_buffers_gpu.append(recv_temp_buffer_gpu)
     
     def _generate_train_buffer(self, assigned_bits_results: Auxillary_Buffer_Type, bits: Tuple[int, ...] = BITS_SET):
         '''
@@ -213,9 +207,9 @@ class CommBuffer(object):
                     send_qparams = torch.zeros(size=(2, layer_fp_size), dtype=torch.bfloat16).pin_memory(device=self.device)
                     self.train_send_buffers_cpu[layer][pid] = (send_qdata, send_qparams)
         # generate the receiving original idx buffer and receiving size idx buffer (temp)
-        rank, world_size = comm.get_rank(), comm.get_world_size()
+        rank, world_size = dist.get_rank(), dist.get_world_size()
         sending_origin_idx_size_buffer_list = [None for _ in range(world_size)]
-        comm.all_gather_any(sending_origin_idx_size_buffer_list, [self.send_original_idx_buffers, temp_send_origin_size_buffer])
+        dist.all_gather_object(sending_origin_idx_size_buffer_list, [self.send_original_idx_buffers, temp_send_origin_size_buffer])
         layer_keys = self.send_original_idx_buffers.keys()
         for layer in layer_keys:
             self.recv_original_idx_buffers[layer] = {}
@@ -257,4 +251,4 @@ class CommBuffer(object):
             pass
         else:
             self._generate_train_buffer(*args, **kwargs)
-        print(f'<worker{comm.get_rank()} buffer update done.>')
+            logging.info(f'<worker {dist.get_rank()} buffer update done>')

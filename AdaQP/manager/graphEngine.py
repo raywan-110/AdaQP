@@ -1,4 +1,3 @@
-import logging
 import dgl
 from typing import Tuple, Union
 from dgl import DGLHeteroGraph
@@ -6,18 +5,18 @@ from dgl import DGLHeteroGraph
 from ..util import Timer, Recorder
 from .conversion import *
 from .processing import *
-from ..communicator import BitType
 from ..communicator import Communicator as comm
+from ..helper import BitType, DistGNNType
 
 class GraphEngine(object):
     '''
     manage the graph and all kind of nodes feats (e.g., features, labels, mask, etc.).
     '''
-    def __init__(self, epoches: int, part_dir='part_data', dataset='dataset', msg_precision_type: str = 'full', use_parallel=False):
+    def __init__(self, epoches: int, part_dir, dataset, msg_precision_type: str, model_type: DistGNNType, use_parallel=False):
         # load original graph and feats
         original_graph, original_feats, gpb, is_bidirected = convert_partition(part_dir, dataset)
         # get send_idx, recv_idx, and scores
-        original_send_idx, recv_idx, scores = get_send_recv_idx_scores(original_graph, original_feats, gpb)
+        original_send_idx, recv_idx, scores = get_send_recv_idx_scores(original_graph, original_feats, gpb, part_dir, dataset, model_type)
         # reorder graph nodes ID order (from 0 to N-1: central->marginal->remote)
         reordered_graph, reordered_feats, reordered_send_idx, num_marginal, num_central = reorder_graph(original_graph, original_feats, original_send_idx)
         send_idx, total_idx = convert_send_idx(reordered_send_idx)
@@ -45,31 +44,30 @@ class GraphEngine(object):
         self._send_idx, self._recv_idx, self._scores = send_idx, recv_idx, scores
         self._total_send_idx = total_idx
         # set feats and labels
-        self._feats = reordered_feats['feat']
-        self._labels = reordered_feats['label']
+        self.feats = reordered_feats['feat']
+        self.labels = reordered_feats['label']
         # set masks
-        self._train_mask = torch.nonzero(reordered_feats['train_mask']).squeeze()
-        self._val_mask = torch.nonzero(reordered_feats['val_mask']).squeeze()
-        self._test_mask = torch.nonzero(reordered_feats['test_mask']).squeeze()
+        self.train_mask = torch.nonzero(reordered_feats['train_mask']).squeeze()
+        self.val_mask = torch.nonzero(reordered_feats['val_mask']).squeeze()
+        self.test_mask = torch.nonzero(reordered_feats['test_mask']).squeeze()
         # set device
         self._device = comm.ctx.device
         # set forward graph and nodes feats
         self.graph = reordered_graph
-        self._nodes_feats = reordered_feats
-        # set backward graph
-        self.bwd_graph = self._get_bp_graph(reordered_graph, use_parallel, is_bidirected)
         # pop unnecessary feats
-        self._nodes_feats.pop('in_degrees')
-        self._nodes_feats.pop('out_degrees')
-        self._nodes_feats.pop('feat')
-        self._nodes_feats.pop('label')
-        self._nodes_feats.pop('train_mask')
-        self._nodes_feats.pop('val_mask')
-        self._nodes_feats.pop('test_mask')
-        self._nodes_feats.pop('part_id')
-        self._nodes_feats.pop(dgl.NID)   
+        reordered_feats.pop('in_degrees')
+        reordered_feats.pop('out_degrees')
+        reordered_feats.pop('feat')
+        reordered_feats.pop('label')
+        reordered_feats.pop('train_mask')
+        reordered_feats.pop('val_mask')
+        reordered_feats.pop('test_mask')
+        reordered_feats.pop('part_id')
+        reordered_feats.pop(dgl.NID)   
         # move to device
         self._move()
+        # set backward graph after moving 
+        self._set_bwd_graph(use_parallel, is_bidirected)
         # init the timer for recording the time cost
         self.timer = Timer(device=self._device)
         # init the recorder for recording metrics
@@ -80,51 +78,34 @@ class GraphEngine(object):
     def __repr__(self):
         return  f'<GraphEngine(rank: {comm.get_rank()}, total nodes: {self.graph.num_nodes()}, edges: {self.graph.num_edges()} remote nodes: {self.num_remove} central nodes: {self.num_central}, marginal nodes: {self.num_marginal})>'
 
-    def _get_bp_graph(self, fp_graph: Union[DGLHeteroGraph, Tuple[DGLHeteroGraph, DGLHeteroGraph]], use_parallel: bool, is_bidirected: bool) -> DGLHeteroGraph:
+    def _set_bwd_graph(self, use_parallel: bool, is_bidirected: bool) -> DGLHeteroGraph:
         if use_parallel:
             pass
         else:
             if not is_bidirected:
-                bp_graph = dgl.reverse(fp_graph, copy_ndata=False, copy_edata=False)
+                self.bwd_graph = dgl.reverse(self.graph, copy_ndata=False, copy_edata=False)
             else:
-                bp_graph = fp_graph
-        return bp_graph
-    
+                self.bwd_graph = self.graph
+
     def _move(self):
         if self._use_parallel:
             pass
         else:
-            self._graph = self._graph.to(self._device)
-            if not self._is_bidirected:
-                self.bp_graph = self.bp_graph.to(self._device)
-            self._feats = self._feats.to(self._device)
-            self._labels = self._labels.to(self._device)
+            # model the (foward) graph
+            self.graph = self.graph.to(self._device)
+            # move feats and labels
+            self.feats = self.feats.to(self._device)
+            self.labels = self.labels.to(self._device)
+            # move masks
+            self.train_mask = self.train_mask.to(self._device)
+            self.val_mask = self.val_mask.to(self._device)
+            self.test_mask = self.test_mask.to(self._device)
     
     '''
     *************************************************
     ***************** getter methods ****************
     *************************************************
     '''
-
-    @property
-    def feats(self):
-        return self._feats['feat']
-    
-    @property
-    def labels(self):
-        return self._labels['label']
-    
-    @property
-    def train_mask(self):
-        return self._train_mask
-    
-    @property
-    def val_mask(self):
-        return self._val_mask
-    
-    @property
-    def test_mask(self):
-        return self._test_mask
 
     @property
     def device(self):

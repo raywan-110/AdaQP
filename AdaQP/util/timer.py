@@ -3,7 +3,7 @@ import torch
 import os
 from contextlib import contextmanager
 
-from ..communicator import BitType
+from ..helper import BitType
 from ..communicator import Communicator as comm
 
 

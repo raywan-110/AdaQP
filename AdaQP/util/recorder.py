@@ -3,6 +3,7 @@ import logging
 import torch
 from typing import Any, List, Union
 
+logger = logging.getLogger('trainer')
 
 class Recorder(object):
     def __init__(self, epoches: int):
@@ -21,8 +22,8 @@ class Recorder(object):
         '''
         result = 100 * self.epoches_metrics
         argmax = result[:, 1].argmax().item()  # use valid metrics to find the best
-        display_info = f'Highest Train: {result[:, 0].max():.2f}\n' + f'Highest Valid: {result[:, 1].max():.2f}\n' + f'  Final Train: {result[argmax, 0]:.2f}\n' + f'  Final Valid: {result[argmax, 1]:.2f}\n' + f'   Final Test: {result[argmax, 2]:.2f}'
-        logging.info(display_info)
+        display_info = f'\nHighest Train: {result[:, 0].max():.2f}\n' + f'Highest Valid: {result[:, 1].max():.2f}\n' + f'  Final Train: {result[argmax, 0]:.2f}\n' + f'  Final Valid: {result[argmax, 1]:.2f}\n' + f'   Final Test: {result[argmax, 2]:.2f}'
+        logger.info(display_info)
         # write results to file
         if metrics_file is not None:
             with open(metrics_file, 'a') as f:

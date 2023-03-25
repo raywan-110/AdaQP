@@ -14,8 +14,8 @@ model:
 runtime:
   model_name: gcn
   learning_rate: 0.01
-  weight_devay: 0
-  num_epoches: 500
+  weight_decay: 0
+  num_epoches: 20
   mode: AdaQP
   exp_path: exp
   logger_level: INFO

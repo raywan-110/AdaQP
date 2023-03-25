@@ -1,6 +1,5 @@
 import logging
 import time
-import csv
 import torch
 from typing import Any, List, Tuple, Union
 from dgl import DGLHeteroGraph
@@ -18,9 +17,9 @@ from ..manager import GraphEngine as engine
 *************************************************
 '''
     
-def setup_logger(name, log_file, level=logging.INFO, with_file=True):
+def setup_logger(log_file, level=logging.INFO, with_file=True):
     """Function setup as many loggers as you want"""
-    logger = logging.getLogger(name)
+    logger = logging.getLogger('trainer')
     logger.setLevel(level)
     formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
     # file handler
@@ -28,10 +27,6 @@ def setup_logger(name, log_file, level=logging.INFO, with_file=True):
         file_handler = logging.FileHandler(log_file)        
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-    # default console handler
-    consle_handler = logging.StreamHandler()
-    consle_handler.setFormatter(formatter)
-    logger.addHandler(consle_handler)
     return logger
 
 def fix_seed(seed: int = 0):
@@ -116,6 +111,7 @@ def val_test(graph: DGLHeteroGraph, model: nn.Module, input_data: Tensor, labels
     metrics.extend(get_metrics(labels[train_mask], logits[train_mask], is_multilabel))
     metrics.extend(get_metrics(labels[val_mask], logits[val_mask], is_multilabel))
     metrics.extend(get_metrics(labels[test_mask], logits[test_mask], is_multilabel))
+    engine.ctx.timer.clear(is_train=False)
     return metrics
 
 '''
@@ -155,7 +151,7 @@ def aggregate_accuracy(loss: Tensor, metrics: List[Union[float, int]], epoch: in
     comm.all_reduce_sum(loss)
     epoch_metrics = [train_acc, val_acc, test_acc]
     engine.ctx.recorder.add_new_metrics(epoch, epoch_metrics)
-    return f'Epoch {epoch:05d} | Loss {loss.item():.4f} | Train Acc {train_acc * 100:.2f} | Val Acc {val_acc * 100:.2f} | Test Acc {test_acc * 100:.2f}'
+    return f'Epoch {epoch:05d} | Loss {loss.item():.4f} | Train Acc {train_acc * 100:.2f}% | Val Acc {val_acc * 100:.2f}% | Test Acc {test_acc * 100:.2f}%'
 
 def aggregate_F1(loss: Tensor, metrics: List[Union[float, int]], epoch: int) -> str:
     '''

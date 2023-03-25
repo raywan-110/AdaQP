@@ -1,29 +1,22 @@
 import os
-import torch
 import logging
+import torch
 import torch.distributed as dist
-from enum import Enum
 from torch import Tensor
 from typing import Dict, List, Any, Tuple
 from queue import Queue
 
 from .buffer import CommBuffer, Basic_Buffer_Type
+from ..helper import MessageType
 
-class MessageType(Enum):
-    '''
-    message type for communication.
-    '''
-    DATA = 0
-    PARAMs = 1
+logger = logging.getLogger('trainer')
 
-
-class Communicator(object):
+class Communicator:
     '''
     the communicator class for distributed training. Communicator is a wrapper of torch.distributed, and managers all the communication buffers and operations.
     '''
-    def __init__(self, local_world_size, backend: str ='gloo', init_method: str ='env://'):
+    def __init__(self, backend: str ='gloo', init_method: str ='env://'):
         self._init(backend, init_method)
-        self._local_world_size = local_world_size
         self.comm_buffer: CommBuffer = None
         # set ctx (do not share across processes)
         Communicator.ctx = self 
@@ -32,17 +25,17 @@ class Communicator(object):
         '''
         initialize the communicator.
         '''
-        if backend is not 'gloo':
+        if backend != 'gloo':
             raise NotImplementedError('only gloo is supported now')
         dist.init_process_group(backend, init_method="env://")
         self._backend = backend
         self._init_method = init_method
         self._local_rank = int(os.environ['LOCAL_RANK'])
-        self._device = torch.device(f'cuda: {self.local_rank}')
+        self._device = torch.device(f'cuda:{self.local_rank}')
         torch.cuda.set_device(self.device)
 
     def __repr__(self):
-        return f'<Communicator(rank: {self.get_rank()}, backend: {self.backend}, world_size: {self.get_world_size()}, local_rank: {self.local_rank}, local_world_size: {self.local_world_size}, device: {self.device})>'
+        return f'<Communicator(rank: {self.get_rank()}, backend: {self.backend}, world_size: {self.get_world_size()}, local_rank: {self.local_rank}, device: {self.device})>'
 
     '''
     *************************************************
@@ -53,10 +46,6 @@ class Communicator(object):
     @property
     def local_rank(self):
         return self._local_rank
-
-    @property
-    def local_world_size(self):
-        return self._local_world_size
     
     @property
     def device(self):
@@ -145,14 +134,14 @@ class Communicator(object):
         '''
         send tensor to dst asynchronously.
         '''
-        dist.isend(tensor, dst, tag=tag.value)
+        return dist.isend(tensor, dst, tag=tag.value)
     
     @staticmethod
     def async_recv(tensor: Tensor, src: int, tag: MessageType):
         '''
         receive tensor from src asynchronously.
         '''
-        dist.irecv(tensor, src, tag=tag.value)
+        return dist.irecv(tensor, src, tag=tag.value)
 
     '''
     *************************************************
@@ -173,6 +162,7 @@ class Communicator(object):
             retrieve_idx = send_idx[right]
             # async send
             send_buffer_cpu[right].copy_(send_messages[retrieve_idx[0]:retrieve_idx[1]])
+            logger.debug(f'<worker {dist.get_rank()} send {send_buffer_cpu[right].shape} to {right}, recv {recv_buffer_cpu[left].shape} from {left}>')
             r1 = self.async_send(send_buffer_cpu[right], right, MessageType.DATA)
             req_send.append(r1)
             # async recv

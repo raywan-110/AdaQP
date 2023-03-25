@@ -1,6 +1,5 @@
 import dgl
 import torch
-from enum import Enum
 from typing import Any, Tuple
 from dgl import DGLHeteroGraph
 from torch import Tensor
@@ -10,10 +9,7 @@ from dgl import function as fn
 
 from .op_util import msg_all2all_GLOO
 from ..manager import GraphEngine as engine
-
-class ProprogationMode(Enum):
-    Forward = 0
-    Backward = 1
+from ..helper import ProprogationMode
     
 def GCN_aggregation(graph: dgl.DGLGraph, feats: Tensor, mode: ProprogationMode = ProprogationMode.Forward):
     with graph.local_scope():

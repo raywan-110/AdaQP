@@ -13,7 +13,7 @@ def convert_partition(part_dir: str, dataset: str) -> Tuple[dgl.DGLHeteroGraph, 
     part_config = f'{part_dir}/{dataset}/{world_size}part/{dataset}.json'
     g, nodes_feats, _, gpb, _, node_type, _ = dgl.distributed.load_partition(part_config, rank)
     # set graph degrees for GNNs aggregation
-    save_dir = f'graph_info/{dataset}'
+    save_dir = f'graph_degrees/{dataset}'
     # load global degrees information 
     in_degrees_global, out_degrees_global = torch.load(f'{save_dir}/in_degrees.pt'), torch.load(f'{save_dir}/out_degrees.pt')
     degree_ids = g.ndata['orig_id']
