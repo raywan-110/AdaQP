@@ -1,6 +1,6 @@
 import dgl
 import torch
-from typing import Any
+from typing import Any, Union
 from torch import Tensor
 from dgl import DGLHeteroGraph
 from torch.nn.parameter import Parameter
@@ -9,6 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .ops import DistAggSAGE
+from ..manager import DecompGraph
+
 
 class DistSAGEConv(nn.Module):
     '''distGCNConv layer transmits 1-hop features(embeddings) and gradients during forward and backward pass'''
@@ -41,7 +43,7 @@ class DistSAGEConv(nn.Module):
         if self.bias is not None:
             init.zeros_(self.bias)
 
-    def forward(self, local_feats: Tensor, graph: DGLHeteroGraph, layer: int) -> Tensor:
+    def forward(self, local_feats: Tensor, graph: Union[DGLHeteroGraph, DecompGraph], layer: int) -> Tensor:
         '''training and transductive inference'''
         # call distAggSAGE.forward() to aggregate feats from neighbors
         h_neigh = DistAggSAGE.apply(local_feats, graph, layer, self.training)
@@ -83,7 +85,7 @@ class DistSAGE(nn.Module):
             for bn in self.norms:
                 bn.reset_parameters()
 
-    def forward(self, g: DGLHeteroGraph, feats: Tensor) -> Tensor:
+    def forward(self, g: Union[DGLHeteroGraph, DecompGraph], feats: Tensor) -> Tensor:
         for i, conv in enumerate(self.convs[:-1]):
             feats = conv(feats, g, i)
             feats = F.dropout(feats, p=self.drop_rate, training=self.training)

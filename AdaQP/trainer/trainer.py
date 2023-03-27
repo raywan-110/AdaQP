@@ -53,6 +53,7 @@ class Trainer(object):
         self._set_communicator()
         # set up graph engine
         self._set_engine()
+        # TODO if use parallel, setup copy buffer
         # set up comm buffer
         self._set_buffer()
         # set up assigner

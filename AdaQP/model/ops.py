@@ -1,6 +1,6 @@
 import dgl
 import torch
-from typing import Any, Tuple
+from typing import Any, Tuple, Union
 from functools import wraps
 from dgl import DGLHeteroGraph
 from torch import Tensor
@@ -10,10 +10,10 @@ from dgl import function as fn
 
 from .op_util import msg_all2all_GLOO
 from ..helper import ProprogationMode
+from ..manager import DecompGraph
 from ..manager import GraphEngine as engine
-from ..assigner import Assigner as assigner
     
-def GCN_aggregation(graph: dgl.DGLGraph, feats: Tensor, mode: ProprogationMode = ProprogationMode.Forward):
+def GCN_aggregation(graph: DGLHeteroGraph, feats: Tensor, mode: ProprogationMode = ProprogationMode.Forward):
     with graph.local_scope():
         aggregate_fn = fn.copy_src('h', 'm')
         if mode == ProprogationMode.Forward:
@@ -30,7 +30,7 @@ def GCN_aggregation(graph: dgl.DGLGraph, feats: Tensor, mode: ProprogationMode =
         rst = graph.dstdata['h'] * norm2.view(-1, 1)
         return rst
 
-def SAGE_aggregation(graph: dgl.DGLGraph, feats: Tensor, mode: ProprogationMode = ProprogationMode.Forward, aggregator_type='mean'):
+def SAGE_aggregation(graph: DGLHeteroGraph, feats: Tensor, mode: ProprogationMode = ProprogationMode.Forward, aggregator_type='mean'):
     with graph.local_scope():
         aggregate_fn = fn.copy_src('h', 'm')
         if mode == ProprogationMode.Forward:
@@ -70,7 +70,7 @@ class DistAggConv(Function):
     '''
     @staticmethod
     @custom_fwd
-    def forward(ctx, local_messages: Tensor, graph: DGLHeteroGraph, layer: int, is_train: bool) -> Tensor:
+    def forward(ctx, local_messages: Tensor, graph: Union[DGLHeteroGraph, DecompGraph], layer: int, is_train: bool) -> Tensor:
         # exchange messages (features/embeddings)
         send_messages = local_messages[engine.ctx.total_send_idx]
         remote_messages = msg_all2all_GLOO(send_messages, f'forward{layer}', is_train)
@@ -105,7 +105,7 @@ class DistAggSAGE(Function):
     '''
     @staticmethod
     @custom_fwd
-    def forward(ctx, local_messages: Tensor, graph: DGLHeteroGraph, layer: int, is_train: bool) -> Tensor:
+    def forward(ctx, local_messages: Tensor, graph: Union[DGLHeteroGraph, DecompGraph], layer: int, is_train: bool) -> Tensor:
         # exchange messages (features/embeddings)
         send_messages = local_messages[engine.ctx.total_send_idx]
         remote_messages = msg_all2all_GLOO(send_messages, f'forward{layer}', is_train)

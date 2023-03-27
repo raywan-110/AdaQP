@@ -1,12 +1,47 @@
 import dgl
-from typing import Tuple, Union
+from typing import List, Tuple
 from dgl import DGLHeteroGraph
+from torch import Tensor
 
 from ..util import Timer, Recorder
 from .conversion import *
 from .processing import *
 from ..communicator import Communicator as comm
 from ..helper import BitType, DistGNNType
+
+class DecompGraph(object):
+    '''
+    Decomposed graph class for each partition, manage central & marginal graphs as well as their buffers for fetching messages form each other.
+    '''
+    def __init__(self, central_graph: DGLHeteroGraph, marginal_geaph :DGLHeteroGraph, src_marginal_idx: Tensor, src_central_idx: Tensor):
+        self.central_graph = central_graph
+        self.marginal_graph = marginal_geaph
+        self._src_marginal_idx = src_marginal_idx
+        self._src_central_idx = src_central_idx
+        self.copy_buffer: List[Tuple[Tensor, Tensor]] = []  # copy messages from central/marginal graphs to marginal/central graphs
+    
+    @property
+    def src_marginal_idx(self):
+        return self._src_marginal_idx
+    
+    @property
+    def src_central_idx(self):
+        return self._src_central_idx
+    
+    def to(self, device: torch.device):
+        self.central_graph = self.central_graph.to(device)
+        self.marginal_graph = self.marginal_graph.to(device)
+        self.src_central_idx = self.src_central_idx.to(device)
+        self._src_marginal_idx = self._src_marginal_idx.to(device)
+    
+    def init_copy_buffer(self, feats_dim: int, hidden_dim: int, num_layers: int, device: torch.device):
+        # TODO support fp and bp, currently consider bi-directed graph (fp is the same as bp)
+        src_marginal_size = self.src_marginal_idx.size(0)
+        src_central_size = self.src_central_idx.size(0)
+        self.copy_buffer.append((torch.zeros(size=(src_marginal_size, feats_dim), device=device), torch.zeros(size=(src_central_size, feats_dim), device=device)))
+        for _ in range(num_layers - 1):
+            self.copy_buffer.append((torch.zeros(size=(src_marginal_size, hidden_dim), device=device), torch.zeros(size=(src_central_size, hidden_dim), device=device)))
+
 
 class GraphEngine(object):
     '''
@@ -25,9 +60,6 @@ class GraphEngine(object):
         num_inner = torch.count_nonzero(reordered_feats['inner_node']).item()
         num_remote = reordered_graph.num_nodes() - num_inner
         assert num_inner == num_central + num_marginal
-        # TODO decompose local graph according to the `use_parallel` flag
-        if use_parallel:
-            pass
         # set tags
         self._is_bidirected = is_bidirected
         self._use_parallel = use_parallel
@@ -51,7 +83,12 @@ class GraphEngine(object):
         # set device
         self._device = comm.ctx.device
         # set forward graph and nodes feats
-        self.graph = reordered_graph
+        # TODO decompose local graph according to the `use_parallel` flag
+        if use_parallel:
+            central_graph, marginal_graph, src_marginal_idx, src_central_idx = decompose_graph(reordered_graph, num_central, num_inner)
+            self.grpah = DecompGraph(central_graph, marginal_graph, src_marginal_idx, src_central_idx)
+        else:
+            self.graph = reordered_graph
         # pop unnecessary feats
         reordered_feats.pop('in_degrees')
         reordered_feats.pop('out_degrees')
@@ -64,7 +101,7 @@ class GraphEngine(object):
         reordered_feats.pop(dgl.NID)   
         # move to device
         self._move()
-        # set backward graph after moving 
+        # !!!set backward graph after moving!!! 
         self._set_bwd_graph(use_parallel, is_bidirected)
         # init the timer for recording the time cost
         self.timer = Timer(device=self._device)
@@ -80,7 +117,12 @@ class GraphEngine(object):
 
     def _set_bwd_graph(self, use_parallel: bool, is_bidirected: bool) -> DGLHeteroGraph:
         if use_parallel:
-            pass
+            if not is_bidirected:
+                reverse_graph = dgl.reverse(self.graph, copy_ndata=False, copy_edata=False)
+                central_graph, marginal_graph, src_marginal_idx, src_central_idx = decompose_graph(reverse_graph, self.num_central, self.num_inner)
+                self.bwd_graph = DecompGraph(central_graph, marginal_graph, src_marginal_idx, src_central_idx)
+            else:
+                self.bwd_graph = self.graph
         else:
             if not is_bidirected:
                 self.bwd_graph = dgl.reverse(self.graph, copy_ndata=False, copy_edata=False)

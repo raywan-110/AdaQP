@@ -1,1 +1,1 @@
-from .graphEngine import GraphEngine
+from .graphEngine import DecompGraph, GraphEngine

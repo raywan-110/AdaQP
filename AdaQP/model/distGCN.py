@@ -1,5 +1,5 @@
 import torch
-from typing import Any
+from typing import Any, Union
 from torch import Tensor
 from dgl import DGLHeteroGraph
 from torch.nn.parameter import Parameter
@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .ops import DistAggConv
+from ..manager import DecompGraph
 
 class DistGCNConv(nn.Module):
     '''DistGCNConv layer transmits 1-hop features(embeddings) and gradients during forward and backward pass'''
@@ -36,7 +37,7 @@ class DistGCNConv(nn.Module):
     def set_allow_zero_in_degree(self, set_value: bool):
         self._allow_zero_in_degree = set_value
 
-    def forward(self, feats: Tensor, graph: DGLHeteroGraph, layer: int) -> Tensor:
+    def forward(self, feats: Tensor, graph: Union[DGLHeteroGraph, DecompGraph], layer: int) -> Tensor:
         weight = self.weight
         # call distAggConv.forward() to aggregate first then mult W
         rst = DistAggConv.apply(feats, graph, layer, self.training)
@@ -73,7 +74,7 @@ class DistGCN(nn.Module):
             for bn in self.norms:
                 bn.reset_parameters()
 
-    def forward(self, g: DGLHeteroGraph, feats: Tensor) -> Tensor:
+    def forward(self, g: Union[DGLHeteroGraph, DecompGraph], feats: Tensor) -> Tensor:
         for i, conv in enumerate(self.convs[:-1]):
             feats = conv(feats, g, i)
             feats = F.dropout(feats, p=self.drop_rate, training=self.training)
