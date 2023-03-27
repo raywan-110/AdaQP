@@ -6,7 +6,7 @@ from argparse import Namespace
 from typing import Dict, Tuple
 
 from .runtime_util import *
-from ..helper import DistGNNType
+from ..helper import DistGNNType, BitType
 from ..model import DistGCN, DistSAGE
 from ..communicator import Communicator as comm
 from ..manager import GraphEngine as engine
@@ -55,10 +55,17 @@ class Trainer(object):
         self._set_engine()
         # set up comm buffer
         self._set_buffer()
-        # TODO set up assigner
-        self.assigner = None
-        # TODO update comm buffer according to the assigner
-        comm.ctx.update_buffer()
+        # set up assigner
+        self._set_assigner()
+        # first bit-width assignment and update train buffer
+        if engine.ctx.bit_type == BitType.QUANT:
+            # if use adaptive assignment, use default uniform bit-width assignment when no traced data is available
+            if assigner.ctx.scheme == 'adaptive':
+                bits_assignments_rst = assigner.ctx.get_assignment(engine.ctx.send_idx, runtime_scheme='uniform')
+            else:
+                # random sampling scheme / uniform scheme
+                bits_assignments_rst = assigner.ctx.get_assignment(engine.ctx.send_idx)
+            comm.ctx.update_buffer(bits_assignments_rst)
         # set up model
         self._set_model()
     
@@ -103,7 +110,11 @@ class Trainer(object):
         comm.ctx.init_buffer(buffer_shape.tolist(), engine.ctx.send_idx, engine.ctx.recv_idx, engine.ctx.bit_type)
     
     def _set_assigner(self):
-        self.assigner = None
+        data_config = self.config['data']
+        model_config = self.config['model']
+        runtime_config = self.config['runtime']
+        assignment_config = self.config['assignment']
+        self.assigner = assigner(data_config['num_feats'], model_config['hidden_dim'], model_config['num_layers'], assignment_config['profile_data_length'], runtime_config['assign_scheme'], assignment_config['assign_bits'], engine.ctx.scores, assignment_config['group_size'], assignment_config['coe_lambda'], assignment_config['assign_cycle'])
         self.logger.info(self.assigner)
         pass
     
@@ -155,9 +166,10 @@ class Trainer(object):
         total_number_nodes = total_number_nodes.item()
         # enter training loop
         for epoch in range(1, epoches + 1):
-            # TODO use decorator to handle bit-width reassignment
             # train for one epoch
-            loss, traced_time, reduce_time = train_for_one_epoch(engine.ctx.graph, self.model, input_data, labels, optimizer, criterion, total_number_nodes, train_mask)
+            overhead, loss, traced_time, reduce_time = train_for_one_epoch(epoch, engine.ctx.graph, self.model, input_data, labels, optimizer, criterion, total_number_nodes, train_mask)
+            # append time records
+            assign_time.append(overhead)
             train_time.append(traced_time)
             # validation and test
             epoch_metrics = val_test(engine.ctx.graph, self.model, input_data, labels, train_mask, val_mask, test_mask, is_multilabel)
@@ -178,6 +190,8 @@ class Trainer(object):
         assign_time = torch.tensor(assign_time).sum()
         train_time = torch.tensor(train_time).mean(dim=0)
         total_time_records = torch.concat([assign_time.view(-1), total_epoches_time.view(-1), train_time]) # assign_time, total_epoches_time, train_time (breakdown)
+        # delete all buffers
+        comm.ctx.delete_buffer()
         return total_time_records
     
     def save(self, time_records: Tensor):
@@ -196,12 +210,14 @@ class Trainer(object):
                 os.makedirs(time_path)
             if not os.path.exists(val_curve_path):
                 os.makedirs(val_curve_path)
-            mode = self.config['runtime']['mode']
+            name = self.config['runtime']['mode']
+            if engine.ctx.bit_type == BitType.QUANT:
+                name = f'{name}_{self.config["runtime"]["assign_scheme"]}'
             # save metrics and val_curve
-            engine.ctx.recorder.display_final_statistics(f'{metrics_path}/{mode}.txt', f'{val_curve_path}/{mode}.pt', self.config['runtime']['model_name'])
+            engine.ctx.recorder.display_final_statistics(f'{metrics_path}/{name}.txt', f'{val_curve_path}/{name}.pt', self.config['runtime']['model_name'])
             # save time
-            set_title = True if not os.path.exists(f'{time_path}/{mode}.csv') else False
-            with open(f'{time_path}/{mode}.csv', 'a') as csvfile:
+            set_title = True if not os.path.exists(f'{time_path}/{name}.csv') else False
+            with open(f'{time_path}/{name}.csv', 'a') as csvfile:
                 writer = csv.writer(csvfile)
                 if set_title:
                     writer.writerow(['Worker', 'Overhead', 'Total', 'Per_epoch', 'Comm', 'Quant', 'Central', 'Marginal', 'Full'])

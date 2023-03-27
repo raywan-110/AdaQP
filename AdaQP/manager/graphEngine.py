@@ -28,8 +28,6 @@ class GraphEngine(object):
         # TODO decompose local graph according to the `use_parallel` flag
         if use_parallel:
             pass
-        # set ctx
-        GraphEngine.ctx = self
         # set tags
         self._is_bidirected = is_bidirected
         self._use_parallel = use_parallel
@@ -74,6 +72,8 @@ class GraphEngine(object):
         self.recorder = Recorder(epoches)
         # graphSAGE aggregator type if needed
         self._agg_type: str = None
+        # set ctx
+        GraphEngine.ctx = self
     
     def __repr__(self):
         return  f'<GraphEngine(rank: {comm.get_rank()}, total nodes: {self.graph.num_nodes()}, edges: {self.graph.num_edges()} remote nodes: {self.num_remove} central nodes: {self.num_central}, marginal nodes: {self.num_marginal})>'

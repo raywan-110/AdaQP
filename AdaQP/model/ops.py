@@ -1,6 +1,7 @@
 import dgl
 import torch
 from typing import Any, Tuple
+from functools import wraps
 from dgl import DGLHeteroGraph
 from torch import Tensor
 from torch.autograd import Function
@@ -8,8 +9,9 @@ from torch.cuda.amp import custom_fwd, custom_bwd
 from dgl import function as fn
 
 from .op_util import msg_all2all_GLOO
-from ..manager import GraphEngine as engine
 from ..helper import ProprogationMode
+from ..manager import GraphEngine as engine
+from ..assigner import Assigner as assigner
     
 def GCN_aggregation(graph: dgl.DGLGraph, feats: Tensor, mode: ProprogationMode = ProprogationMode.Forward):
     with graph.local_scope():

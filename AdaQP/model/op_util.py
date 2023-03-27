@@ -1,5 +1,6 @@
 import torch
 from typing import Dict, Tuple
+from functools import wraps
 from typing import Tuple
 from torch import Tensor
 import quant_cuda as integer_quantizer
@@ -8,6 +9,7 @@ from ..helper import BitType
 from ..communicator import Basic_Buffer_Type
 from ..communicator import Communicator as comm
 from ..manager import GraphEngine as engine
+from ..assigner import Assigner as assigner
 
 '''
 *************************************************
@@ -86,6 +88,17 @@ def message_dequantization(q_input: Tensor, q_scale: Tensor, rmin: Tensor, input
 *************************************************
 '''
 
+def trace_input(func):
+    @wraps(func)
+    def wrapper(send_messages, name, is_train):
+        if assigner.ctx.is_tracing:
+            rmin, rmax = torch.min(send_messages, dim=1)[0], torch.max(send_messages, dim=1)[0]
+            dim = send_messages.shape[1]
+            assigner.ctx.traced_layer_data[name] += (dim / 6) * (rmax - rmin) ** 2
+        return func(send_messages, name, is_train)
+    return wrapper
+
+@trace_input
 def msg_all2all_GLOO(local_messages: Tensor, name: str, is_train: bool = True) -> Tensor:
     '''
     perform messages exchange between all workers.

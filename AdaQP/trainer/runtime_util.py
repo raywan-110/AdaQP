@@ -10,6 +10,7 @@ import numpy as np
 
 from ..communicator import Communicator as comm
 from ..manager import GraphEngine as engine
+from ..assigner import Assigner as assigner
 
 '''
 *************************************************
@@ -19,15 +20,15 @@ from ..manager import GraphEngine as engine
     
 def setup_logger(log_file, level=logging.INFO, with_file=True):
     """Function setup as many loggers as you want"""
-    logger = logging.getLogger('trainer')
-    logger.setLevel(level)
+    config_logger = logging.getLogger('trainer')
+    config_logger.setLevel(level)
     formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
     # file handler
     if with_file:
         file_handler = logging.FileHandler(log_file)        
         file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    return logger
+        config_logger.addHandler(file_handler)
+    return config_logger
 
 def fix_seed(seed: int = 0):
     torch.manual_seed(seed)
@@ -74,10 +75,24 @@ def average_gradients(model: nn.Module):
         if param.requires_grad:
             comm.all_reduce_sum(param.grad.data)
 
-def train_for_one_epoch(graph: DGLHeteroGraph, model: nn.Module, input_data: Tensor, labels: Tensor, optimizer: Optimizer, criterion: Union[nn.Module, Any], total_num_training_samples: int, train_mask: Tensor) -> Tuple[Any, List[float], float]:
+
+def train_for_one_epoch(epoch: int, graph: DGLHeteroGraph, model: nn.Module, input_data: Tensor, labels: Tensor, optimizer: Optimizer, criterion: Union[nn.Module, Any], total_num_training_samples: int, train_mask: Tensor) -> Tuple[Any, List[float], float]:
     '''
     train for one epoch
     '''
+    overhead = 0.0
+    # check if the bit-width needs to be updated
+    if epoch % assigner.ctx.assign_cycle == 1 and epoch != 1:
+        if assigner.ctx.scheme in ['adaptive', 'random']:
+            logger = logging.getLogger('trainer')
+            logger.info(f'<epoch {epoch}, updating bit-width...>')
+            ovearhead_start = time.time()
+            bist_assignments = assigner.ctx.get_assignment(engine.ctx.send_idx)
+            comm.ctx.update_buffer(bist_assignments)
+            overhead = time.time() - ovearhead_start
+        else:
+            # uniform assignment do not need re-assignment
+            pass
     # record epoch training time
     epoch_start = time.time()
     # forawrd
@@ -97,7 +112,7 @@ def train_for_one_epoch(graph: DGLHeteroGraph, model: nn.Module, input_data: Ten
     traced_time = engine.ctx.timer.epoch_traced_time()
     engine.ctx.timer.clear()
     traced_time.insert(0, epoch_time)
-    return loss, traced_time, reduce_time
+    return overhead, loss, traced_time, reduce_time
 
 @torch.no_grad()
 def val_test(graph: DGLHeteroGraph, model: nn.Module, input_data: Tensor, labels: Tensor, train_mask: Tensor, val_mask: Tensor, test_mask: Tensor, is_multilabel: bool = False):

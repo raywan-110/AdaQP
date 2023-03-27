@@ -19,7 +19,7 @@ Auxillary_Buffer_Type = NewType('Auxillary_Buffer_Type', Dict[str, Dict[int, Dic
 
 BITS_SET = (2, 4, 8)
 
-class CommBuffer:
+class CommBuffer(object):
     '''
     manage the communication buffer for remote messages exchange.
     '''
@@ -77,33 +77,36 @@ class CommBuffer:
     *************************************************
     '''
 
-    def _delete_buffer_tensors(self, buffer_tensors: Union[Test_Buffer_Type, Train_Buffer_Type, Auxillary_Buffer_Type]):
+    def _delete_buffer_tensors(self, buffer_tensors: Union[Test_Buffer_Type, Train_Buffer_Type, Auxillary_Buffer_Type], buffer_name: str):
         '''
         delete the dict of tensors.
         '''
-        if isinstance(buffer_tensors, Test_Buffer_Type):
+        NAME = ('test', 'train', 'auxillary')
+        assert buffer_name in NAME, f'buffer_name should be one of {NAME}, but got {buffer_name}'
+        if buffer_name == 'test':
             for buffer_per_layer in range(len(buffer_tensors)):
                 for pid in buffer_tensors[buffer_per_layer].keys():
                     buffer_tensors[buffer_per_layer][pid] = None
-        elif isinstance(buffer_tensors, Train_Buffer_Type):
+        elif buffer_name == 'train':
             for buffer_per_layer in buffer_tensors.keys():
                 for buffer_per_pid in buffer_tensors[buffer_per_layer].keys():
                     buffer_tensors[buffer_per_layer][buffer_per_pid] = None
-        elif isinstance(buffer_tensors, Auxillary_Buffer_Type):
+        else:
             for buffer_per_layer in buffer_tensors.keys():
                 for buffer_per_pid in buffer_tensors[buffer_per_layer].keys():
                     for buffer_per_bits in buffer_tensors[buffer_per_layer][buffer_per_pid].keys():
                         buffer_tensors[buffer_per_layer][buffer_per_pid][buffer_per_bits] = None
-        else:
-            raise TypeError('buffer_tensors should be one of Test_Buffer_Type, Train_Buffer_Type, Auxillary_Buffer_Type')
     
     def _delete_test_buffer(self):
         '''
         delete the test communication buffer.
         '''
-        self._delete_buffer_tensors(self.test_recv_buffers_cpu)
-        self._delete_buffer_tensors(self.test_recv_buffers_gpu)
-        self._delete_buffer_tensors(self.test_send_buffers_cpu)
+        if self.test_recv_buffers_cpu != []:
+            self._delete_buffer_tensors(self.test_recv_buffers_cpu, 'test')
+        if self.test_recv_buffers_gpu != []:
+            self._delete_buffer_tensors(self.test_recv_buffers_gpu, 'test')
+        if self.test_send_buffers_cpu != []:
+            self._delete_buffer_tensors(self.test_send_buffers_cpu, 'test')
         self.test_recv_buffers_cpu = []
         self.test_recv_buffers_gpu = []
         self.test_send_buffers_cpu = []
@@ -113,19 +116,25 @@ class CommBuffer:
         delete the train communication buffer.
         '''
         # reset idx and size buffer
-        self._delete_buffer_tensors(self.send_original_idx_buffers)
-        self._delete_buffer_tensors(self.recv_original_idx_buffers)
-        self._delete_buffer_tensors(self.recv_original_size_buffers)
-        self.send_original_idx_buffers = {}
-        self.recv_original_idx_buffers = {}
-        self.recv_original_size_buffers = {}
-        # reset buffer
-        self._delete_buffer_tensors(self.train_recv_buffers_cpu)
-        self._delete_buffer_tensors(self.train_recv_buffers_gpu)
-        self._delete_buffer_tensors(self.train_send_buffers_cpu)
-        self.train_recv_buffers_cpu = {}
-        self.train_recv_buffers_gpu = {}
-        self.train_send_buffers_cpu = {}
+        if self.send_original_idx_buffers != {}:
+            self._delete_buffer_tensors(self.send_original_idx_buffers, 'auxillary')
+        if self.recv_original_idx_buffers != {}:
+            self._delete_buffer_tensors(self.recv_original_idx_buffers, 'auxillary')
+        if self.recv_original_size_buffers != {}:
+            self._delete_buffer_tensors(self.recv_original_size_buffers, 'auxillary')
+        self.send_original_idx_buffers.clear()
+        self.recv_original_idx_buffers.clear()
+        self.recv_original_size_buffers.clear()
+        # reset train buffer
+        if self.train_recv_buffers_cpu != {}:
+            self._delete_buffer_tensors(self.train_recv_buffers_cpu, 'train')
+        if self.train_recv_buffers_gpu != {}:
+            self._delete_buffer_tensors(self.train_recv_buffers_gpu, 'train')
+        if self.train_send_buffers_cpu != {}:
+            self._delete_buffer_tensors(self.train_send_buffers_cpu, 'train')
+        self.train_recv_buffers_cpu.clear()
+        self.train_recv_buffers_gpu.clear()
+        self.train_send_buffers_cpu.clear()
     
     def _delete(self):
         '''
@@ -164,7 +173,7 @@ class CommBuffer:
             self.test_recv_buffers_cpu.append(recv_temp_buffer_cpu)
             self.test_recv_buffers_gpu.append(recv_temp_buffer_gpu)
     
-    def _generate_train_buffer(self, assigned_bits_results: Auxillary_Buffer_Type, bits: Tuple[int, ...] = BITS_SET):
+    def _generate_train_buffer(self, bits_assignment_rst: Dict[str, Dict[int, Tensor]], bits: Tuple[int, ...] = BITS_SET):
         '''
         generate the train communication buffer for training.
         '''
@@ -177,7 +186,7 @@ class CommBuffer:
             return q_size
         # generate the sending original idx buffer and sending size idx buffer (temp)
         temp_send_origin_size_buffer: Dict[str, Dict[int, Dict[int, Tensor]]] = {}
-        for layer, config_per_layer in assigned_bits_results.items():
+        for layer, config_per_layer in bits_assignment_rst.items():
             self.send_original_idx_buffers[layer] = {}
             temp_send_origin_size_buffer[layer] = {}
             for pid, config_per_pid in config_per_layer.items():
@@ -194,7 +203,7 @@ class CommBuffer:
                         self.send_original_idx_buffers[layer][pid][b] = b_ids
                         temp_send_origin_size_buffer[layer][pid][b] = (b_qsize, len(b_ids)) # (qt_size, fp_data_size)
         # generate the sending buffer
-        for layer in self.send_original_idx_buffers.items():
+        for layer in self.send_original_idx_buffers.keys():
             self.train_send_buffers_cpu[layer] = {}
             for pid, size_buffer in temp_send_origin_size_buffer[layer].items():
                 layer_qt_size = 0
@@ -216,9 +225,10 @@ class CommBuffer:
             self.recv_original_size_buffers[layer] = {}
             for i in range(world_size):
                 # if worker i needs to send data to current worker rank
-                if i is not rank and rank in sending_origin_idx_size_buffer_list[i][0].keys():
-                    self.recv_original_idx_buffers[layer][i] = sending_origin_idx_size_buffer_list[i][0][rank]  # get original idx buffer from worker i
-                    self.recv_original_size_buffers[layer][i] = sending_origin_idx_size_buffer_list[i][1][rank]  # get original size buffer from worker i
+                if i is not rank:
+                    if rank in sending_origin_idx_size_buffer_list[i][0][layer].keys():
+                        self.recv_original_idx_buffers[layer][i] = sending_origin_idx_size_buffer_list[i][0][layer][rank]  # get original idx buffer from worker i
+                        self.recv_original_size_buffers[layer][i] = sending_origin_idx_size_buffer_list[i][1][layer][rank]  # get original size buffer from worker i
         # generate the receiving buffer
         for layer in layer_keys:
             self.train_recv_buffers_cpu[layer] = {}
@@ -236,7 +246,6 @@ class CommBuffer:
                     recv_qparams_gpu = torch.zeros(size=(2, layer_fp_size), dtype=torch.bfloat16).to(device=self.device)
                     self.train_recv_buffers_cpu[layer][pid] = (recv_qdata_cpu, recv_qparams_cpu)
                     self.train_recv_buffers_gpu[layer][pid] = (recv_qdata_gpu, recv_qparams_gpu)
-
     '''
     *************************************************
     *************** external interface **************
@@ -250,5 +259,6 @@ class CommBuffer:
         if self.bit_type == BitType.FULL:
             pass
         else:
+            self._delete_train_buffer()
             self._generate_train_buffer(*args, **kwargs)
-            logging.info(f'<worker {dist.get_rank()} buffer update done>')
+            logger.info(f'<worker {dist.get_rank()} buffer update done>')

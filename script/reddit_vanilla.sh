@@ -15,7 +15,7 @@ export NUM_SERVERS=${servers[i]}
 export WORKERS_PER_SERVER=${workers_per_server_arr[i]}
 torchrun --nproc_per_node=$WORKERS_PER_SERVER --nnodes=$NUM_SERVERS --node_rank=$RANK --master_addr=$IP --master_port=$PORT main.py \
 --dataset reddit \
---mode AdaQP-q \
+--mode Vanilla \
 --num_parts $(($WORKERS_PER_SERVER*$NUM_SERVERS)) \
 --backend gloo \
 --init_method env:// \

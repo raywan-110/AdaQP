@@ -11,7 +11,7 @@ from ..helper import MessageType
 
 logger = logging.getLogger('trainer')
 
-class Communicator:
+class Communicator(object):
     '''
     the communicator class for distributed training. Communicator is a wrapper of torch.distributed, and managers all the communication buffers and operations.
     '''
@@ -129,6 +129,20 @@ class Communicator:
         dist.gather_object(obj, obj_list, dst)
 
     # p2p primitives
+    @staticmethod
+    def sync_send(tensor: Tensor, dst: int, tag: MessageType):
+        '''
+        send tensor to dst synchronously.
+        '''
+        return dist.send(tensor, dst, tag=tag.value)
+
+    @staticmethod
+    def sync_recv(tensor: Tensor, src: int, tag: MessageType):
+        '''
+        receive tensor from src synchronously.
+        '''
+        return dist.recv(tensor, src, tag=tag.value)
+    
     @staticmethod
     def async_send(tensor: Tensor, dst: int, tag: MessageType):
         '''
