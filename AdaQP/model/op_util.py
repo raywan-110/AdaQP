@@ -84,7 +84,7 @@ def message_dequantization(q_input: Tensor, q_scale: Tensor, rmin: Tensor, input
 
 '''
 *************************************************
-***** message exchange functions *****
+****************** decorators *******************
 *************************************************
 '''
 
@@ -98,27 +98,63 @@ def trace_input(func):
         return func(send_messages, name, is_train)
     return wrapper
 
+def wrap_stream(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if engine.ctx.use_parallel:
+            with torch.cuda.stream(engine.ctx.marginal_stream):
+                result = func(*args, **kwargs)
+        else:
+            result = func(*args, **kwargs)
+        return result
+    return wrapper
+
+def quant_sync_stream(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        func(*args, **kwargs) # quantization func does not return anything
+        if engine.ctx.use_parallel:
+            engine.ctx.quant_cuda_event.record(torch.cuda.current_stream())
+            engine.ctx.quant_cpu_event.set()
+    return wrapper
+
+def dequant_sync_stream(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if engine.ctx.use_parallel:
+            engine.ctx.comp_cpu_event.wait()
+            torch.cuda.current_stream().wait_event(engine.ctx.comp_cuda_event)
+            engine.ctx.quant_cpu_event.clear()
+        results = func(*args, **kwargs) # dequantization func does not return anything
+        return results
+    return wrapper
+'''
+*************************************************
+********** message exchange functions ***********
+*************************************************
+'''
+
 @trace_input
-def msg_all2all_GLOO(local_messages: Tensor, name: str, is_train: bool = True) -> Tensor:
+def msg_all2all_GLOO(send_messages: Tensor, name: str, is_train: bool = True) -> Tensor:
     '''
     perform messages exchange between all workers.
     '''
     assert comm.get_backend() == 'gloo', 'currently only gloo backend is supported'
     # get necessary params
-    msg_dim = local_messages.shape[-1]
-    msg_dtype = local_messages.dtype
+    msg_dim = send_messages.shape[-1]
+    msg_dtype = send_messages.dtype
     bit_type = engine.ctx.bit_type
     num_remote = engine.ctx.num_remove
     send_idx = engine.ctx.send_idx
     recv_idx = engine.ctx.recv_idx
     if bit_type == BitType.FULL or not is_train:
-        return fp_msg_transfer_process(local_messages, send_idx, recv_idx, msg_dim, msg_dtype, num_remote, name, is_train)
+        return fp_msg_transfer_process(send_messages, send_idx, recv_idx, msg_dim, msg_dtype, num_remote, name, is_train)
     else:
-        return qt_msg_transfer_process(local_messages, send_idx, recv_idx, msg_dim, msg_dtype, num_remote, name)
+        return qt_msg_transfer_process(send_messages, send_idx, recv_idx, msg_dim, msg_dtype, num_remote, name)
     
 
-# TODO: add decorator to handle central/marginal graph parallelism
-def fp_msg_transfer_process(local_messages: Tensor, send_idx: Dict[int, Tuple[int, int]], recv_idx: Basic_Buffer_Type, msg_dim: int, msg_dtype: torch.dtype, num_remote: int, name: str, is_train: bool) -> Tensor:
+@wrap_stream
+def fp_msg_transfer_process(send_messages: Tensor, send_idx: Dict[int, Tuple[int, int]], recv_idx: Basic_Buffer_Type, msg_dim: int, msg_dtype: torch.dtype, num_remote: int, name: str, is_train: bool) -> Tensor:
     # get communication buffer
     if not is_train:
         idx = int(name[-1])
@@ -127,20 +163,21 @@ def fp_msg_transfer_process(local_messages: Tensor, send_idx: Dict[int, Tuple[in
         recv_buffer_cpu, recv_buffer_gpu, send_buffer_cpu = comm.ctx.comm_buffer.get_train_buffer(name)
     # communication
     with engine.ctx.timer.record(f'{name}_communication'):
-        comm.ctx.fp_msg_exchange(recv_buffer_cpu, recv_buffer_gpu, send_buffer_cpu, send_idx, local_messages)
+        comm.ctx.fp_msg_exchange(recv_buffer_cpu, recv_buffer_gpu, send_buffer_cpu, send_idx, send_messages)
     # reorganize received messages
     remote_messages = torch.zeros(num_remote, msg_dim, dtype=msg_dtype, device=comm.ctx.device)
     for pid, idx in recv_idx.items():
         remote_messages[idx] = recv_buffer_gpu[pid]
     return remote_messages    
 
-def qt_msg_transfer_process(local_messages: Tensor, send_idx: Dict[int, Tuple[int, int]], recv_idx: Basic_Buffer_Type, msg_dim: int, msg_dtype: torch.dtype, num_remote: int, name: str) -> Tensor:
+@wrap_stream
+def qt_msg_transfer_process(send_messages: Tensor, send_idx: Dict[int, Tuple[int, int]], recv_idx: Basic_Buffer_Type, msg_dim: int, msg_dtype: torch.dtype, num_remote: int, name: str) -> Tensor:
     # get communication buffer and auxillary buffer
     recv_buffer_cpu, recv_buffer_gpu, send_buffer_cpu = comm.ctx.comm_buffer.get_train_buffer(name)
     recv_orig_idx_buffer, recv_orig_size_buffer, send_orig_idx_buffer = comm.ctx.comm_buffer.get_auxillary_buffer(name)
     # quantization
     with engine.ctx.timer.record(f'{name}_quantization'):
-        mixed_msg_quantization(local_messages, send_idx, send_buffer_cpu, send_orig_idx_buffer)
+        mixed_msg_quantization(send_messages, send_idx, send_buffer_cpu, send_orig_idx_buffer)
     # communication
     with engine.ctx.timer.record(f'{name}_communication'):
         comm.ctx.qt_msg_exchange(recv_buffer_cpu, recv_buffer_gpu, send_buffer_cpu)
@@ -149,13 +186,13 @@ def qt_msg_transfer_process(local_messages: Tensor, send_idx: Dict[int, Tuple[in
         remote_messages = mixed_msg_dequantization(recv_idx, recv_buffer_gpu, recv_orig_idx_buffer, recv_orig_size_buffer, msg_dim, msg_dtype, num_remote)
     return remote_messages
     
-
-def mixed_msg_quantization(local_messages: Tensor, send_idx: Dict[int, Tuple[int, int]], send_buffer_cpu: Basic_Buffer_Type, send_orig_idx_buffer: Dict[int, Dict[int, Tensor]]):
+@quant_sync_stream
+def mixed_msg_quantization(send_messages: Tensor, send_idx: Dict[int, Tuple[int, int]], send_buffer_cpu: Basic_Buffer_Type, send_orig_idx_buffer: Dict[int, Dict[int, Tensor]]):
     '''
     quantize messages to different bit-widths, and convert them into uniform byte stream for communication.
     '''
     for pid, ids in send_idx.items():
-        data = local_messages[ids[0]:ids[1]]
+        data = send_messages[ids[0]:ids[1]]
         Q_data = []
         Q_scale = []
         R_min = []
@@ -171,6 +208,7 @@ def mixed_msg_quantization(local_messages: Tensor, send_idx: Dict[int, Tuple[int
         send_buffer_cpu[pid][0].copy_(Q_data, non_blocking=True)
         send_buffer_cpu[pid][1].copy_(Q_params, non_blocking=True)
 
+@dequant_sync_stream
 def mixed_msg_dequantization(recv_idx: Basic_Buffer_Type, recv_buffer_gpu: Basic_Buffer_Type, recv_orig_idx_buffer: Dict[int, Dict[int, Tensor]],  recv_orig_size_buffer: Dict[int, Dict[int, Tuple[int, int]]], msg_dim: int, dtype: torch.dtype, num_remote: int) -> Tensor:
     '''
     dequantize received messages to original bit-widths (FP32).
@@ -196,12 +234,6 @@ def mixed_msg_dequantization(recv_idx: Basic_Buffer_Type, recv_buffer_gpu: Basic
             fp_offset += two_size[1]
         remote_tensors[ids] = sub_remote_tensors
     return remote_tensors
-    
-
-
-def msg_all2all_NCCL(local_messages: Tensor, name: str, is_train: bool = True) -> Tensor:
-    raise NotImplementedError
-    
 
 
 

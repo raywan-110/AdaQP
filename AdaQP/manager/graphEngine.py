@@ -1,5 +1,7 @@
 import dgl
-from typing import List, Tuple
+from multiprocessing import Event
+from multiprocessing.pool import ThreadPool
+from typing import List, Tuple, Union
 from dgl import DGLHeteroGraph
 from torch import Tensor
 
@@ -18,7 +20,7 @@ class DecompGraph(object):
         self.marginal_graph = marginal_geaph
         self._src_marginal_idx = src_marginal_idx
         self._src_central_idx = src_central_idx
-        self.copy_buffer: List[Tuple[Tensor, Tensor]] = []  # copy messages from central/marginal graphs to marginal/central graphs
+        self.copy_buffers: List[Tuple[Tensor, Tensor]] = []  # copy messages from central/marginal graphs to marginal/central graphs
     
     @property
     def src_marginal_idx(self):
@@ -31,16 +33,18 @@ class DecompGraph(object):
     def to(self, device: torch.device):
         self.central_graph = self.central_graph.to(device)
         self.marginal_graph = self.marginal_graph.to(device)
-        self.src_central_idx = self.src_central_idx.to(device)
+        self._src_central_idx = self._src_central_idx.to(device)
         self._src_marginal_idx = self._src_marginal_idx.to(device)
     
-    def init_copy_buffer(self, feats_dim: int, hidden_dim: int, num_layers: int, device: torch.device):
-        # TODO support fp and bp, currently consider bi-directed graph (fp is the same as bp)
+    def init_copy_buffers(self, feats_dim: int, hidden_dim: int, num_layers: int, device: torch.device):
         src_marginal_size = self.src_marginal_idx.size(0)
         src_central_size = self.src_central_idx.size(0)
-        self.copy_buffer.append((torch.zeros(size=(src_marginal_size, feats_dim), device=device), torch.zeros(size=(src_central_size, feats_dim), device=device)))
+        self.copy_buffers.append((torch.zeros(size=(src_marginal_size, feats_dim), device=device), torch.zeros(size=(src_central_size, feats_dim), device=device)))
         for _ in range(num_layers - 1):
-            self.copy_buffer.append((torch.zeros(size=(src_marginal_size, hidden_dim), device=device), torch.zeros(size=(src_central_size, hidden_dim), device=device)))
+            self.copy_buffers.append((torch.zeros(size=(src_marginal_size, hidden_dim), device=device), torch.zeros(size=(src_central_size, hidden_dim), device=device)))
+    
+    def get_copy_buffers(self, layer: int) -> Tuple[Tensor, Tensor]:
+        return self.copy_buffers[layer]
 
 
 class GraphEngine(object):
@@ -83,10 +87,10 @@ class GraphEngine(object):
         # set device
         self._device = comm.ctx.device
         # set forward graph and nodes feats
-        # TODO decompose local graph according to the `use_parallel` flag
         if use_parallel:
             central_graph, marginal_graph, src_marginal_idx, src_central_idx = decompose_graph(reordered_graph, num_central, num_inner)
-            self.grpah = DecompGraph(central_graph, marginal_graph, src_marginal_idx, src_central_idx)
+            self.graph = DecompGraph(central_graph, marginal_graph, src_marginal_idx, src_central_idx)
+            self._init_stream_ctx()
         else:
             self.graph = reordered_graph
         # pop unnecessary feats
@@ -113,9 +117,22 @@ class GraphEngine(object):
         GraphEngine.ctx = self
     
     def __repr__(self):
-        return  f'<GraphEngine(rank: {comm.get_rank()}, total nodes: {self.graph.num_nodes()}, edges: {self.graph.num_edges()} remote nodes: {self.num_remove} central nodes: {self.num_central}, marginal nodes: {self.num_marginal})>'
-
-    def _set_bwd_graph(self, use_parallel: bool, is_bidirected: bool) -> DGLHeteroGraph:
+        return  f'<GraphEngine(rank: {comm.get_rank()}, remote nodes: {self.num_remove} central nodes: {self.num_central}, marginal nodes: {self.num_marginal})>'
+    
+    def _init_stream_ctx(self):
+        # init streams for resources isolation (central graph computation uses default stream)
+        self.marginal_stream = torch.cuda.Stream(device=comm.ctx.device)
+        # init cuda event to synchronize streams
+        self.quant_cuda_event = torch.cuda.Event()
+        self.comp_cuda_event = torch.cuda.Event() # used by central graph computation
+        # init cpu event since quant/dequant and communication operations on marginal graph are called asynchronously
+        self.quant_cpu_event = Event()
+        self.comp_cpu_event = Event() # used by central graph computation
+        # init marginal thread
+        self.marginal_pool = ThreadPool(processes=1)
+        
+        
+    def _set_bwd_graph(self, use_parallel: bool, is_bidirected: bool):
         if use_parallel:
             if not is_bidirected:
                 reverse_graph = dgl.reverse(self.graph, copy_ndata=False, copy_edata=False)
@@ -130,18 +147,18 @@ class GraphEngine(object):
                 self.bwd_graph = self.graph
 
     def _move(self):
+        # model the foward graph
         if self._use_parallel:
-            pass
+            self.graph.to(self._device)
         else:
-            # model the (foward) graph
             self.graph = self.graph.to(self._device)
-            # move feats and labels
-            self.feats = self.feats.to(self._device)
-            self.labels = self.labels.to(self._device)
-            # move masks
-            self.train_mask = self.train_mask.to(self._device)
-            self.val_mask = self.val_mask.to(self._device)
-            self.test_mask = self.test_mask.to(self._device)
+        # move feats and labels
+        self.feats = self.feats.to(self._device)
+        self.labels = self.labels.to(self._device)
+        # move masks
+        self.train_mask = self.train_mask.to(self._device)
+        self.val_mask = self.val_mask.to(self._device)
+        self.test_mask = self.test_mask.to(self._device)
     
     '''
     *************************************************

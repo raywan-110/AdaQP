@@ -8,9 +8,12 @@ from queue import Queue
 from torch import Tensor
 import numpy as np
 import pulp as plp
+
 from .profile import *
+from ..helper import BitType
 from ..communicator import BITS_SET
 from ..communicator import Communicator as comm
+from ..manager import GraphEngine as engine
 
 logger = logging.getLogger('trainer')
 
@@ -51,7 +54,7 @@ class Assigner(object):
         self.normalization_mode = ('magnitude', 'nadir_utopia')
         self.solving_pool = None
         self.group_idx: Dict[str, Dict[int, Tensor]] = {}
-        if scheme == 'adaptive':
+        if scheme == 'adaptive' and engine.ctx.bit_type == BitType.QUANT:
             self._init_adaptive()
         # set context
         Assigner.ctx = self

@@ -15,7 +15,7 @@ runtime:
   model_name: gcn
   learning_rate: 0.01
   weight_decay: 0
-  num_epoches: 100
+  num_epoches: 50
   mode: AdaQP
   assign_scheme: uniform
   exp_path: exp

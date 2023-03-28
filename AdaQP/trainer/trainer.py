@@ -53,7 +53,6 @@ class Trainer(object):
         self._set_communicator()
         # set up graph engine
         self._set_engine()
-        # TODO if use parallel, setup copy buffer
         # set up comm buffer
         self._set_buffer()
         # set up assigner
@@ -98,6 +97,10 @@ class Trainer(object):
         # setup
         self.engine = engine(runtime_config['num_epoches'], data_config['partition_path'], runtime_config['dataset'], msg_precision_type, model_type, use_parallel)
         engine.ctx.agg_type = model_config['aggregator_type']
+        if engine.ctx.use_parallel:
+            # init the copy buffer
+            engine.ctx.graph.init_copy_buffers(data_config['num_feats'], model_config['hidden_dim'], model_config['num_layers'], engine.ctx.device)
+            engine.ctx.bwd_graph.init_copy_buffers(data_config['num_feats'], model_config['hidden_dim'], model_config['num_layers'], engine.ctx.device)
         self.logger.info(repr(self.engine))
     
     def _set_buffer(self):

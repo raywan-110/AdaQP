@@ -8,6 +8,7 @@ from torch import nn
 from torch.optim import Optimizer
 import numpy as np
 
+from ..helper import BitType
 from ..communicator import Communicator as comm
 from ..manager import GraphEngine as engine
 from ..assigner import Assigner as assigner
@@ -83,7 +84,7 @@ def train_for_one_epoch(epoch: int, graph: DGLHeteroGraph, model: nn.Module, inp
     overhead = 0.0
     # check if the bit-width needs to be updated
     if epoch % assigner.ctx.assign_cycle == 1 and epoch != 1:
-        if assigner.ctx.scheme in ['adaptive', 'random']:
+        if assigner.ctx.scheme in ['adaptive', 'random'] and engine.ctx.bit_type == BitType.QUANT:
             logger = logging.getLogger('trainer')
             logger.info(f'<epoch {epoch}, updating bit-width...>')
             ovearhead_start = time.time()
