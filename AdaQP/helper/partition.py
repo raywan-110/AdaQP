@@ -5,7 +5,7 @@ from dgl import DGLHeteroGraph
 from ogb.nodeproppred import DglNodePropPredDataset
 from dgl.data import RedditDataset
 
-from .dataset import Amazon2m, load_yelp
+from .dataset import AmazonProducts, load_yelp
 
 def process_obg_dataset(dataset: str, raw_dir: str) -> DGLHeteroGraph:
     '''
@@ -47,8 +47,8 @@ def graph_patition_store(dataset: str, partition_size: int, raw_dir: str = 'data
     elif dataset == 'reddit':
         data = RedditDataset(raw_dir=raw_dir)
         graph = data[0]
-    elif dataset == 'amazon2m':
-        data = Amazon2m(raw_dir=raw_dir)
+    elif dataset == 'amazonProducts':
+        data = AmazonProducts(raw_dir=raw_dir)
         graph = data[0]
     elif dataset == 'yelp':
         graph = load_yelp(raw_dir=raw_dir)

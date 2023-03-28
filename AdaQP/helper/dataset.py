@@ -47,10 +47,10 @@ def download_url(url: str, folder: str, log: bool = True,
             f.write(chunk)
     return path
 
-class Amazon2m(DGLDataset):
+class AmazonProducts(DGLDataset):
     def __init__(self, raw_dir: str=None, force_reload: bool=False, verbose: bool=False):
         _url = 'https://docs.google.com/uc?export=download&id={}&confirm=t'
-        super(Amazon2m, self).__init__(name='amazon2m', url=_url, raw_dir=raw_dir, force_reload=force_reload, verbose=verbose)
+        super(AmazonProducts, self).__init__(name='amazon2m', url=_url, raw_dir=raw_dir, force_reload=force_reload, verbose=verbose)
     
     def download(self):
         adj_full_id = '17qhNA8H1IpbkkR-T2BmPQm8QNW5do-aa'
@@ -113,7 +113,7 @@ class Amazon2m(DGLDataset):
         return self.num_classes
     
     def __getitem__(self, idx):
-        assert idx == 0, "Amazon2m Dataset only has noe graph"
+        assert idx == 0, "AmazonProducts Dataset only has noe graph"
         return self._graph
     
     def __len__(self):

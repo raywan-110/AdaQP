@@ -15,14 +15,14 @@ runtime:
   model_name: gcn
   learning_rate: 0.01
   weight_decay: 0
-  num_epoches: 50
+  num_epoches: 500
   mode: AdaQP
-  assign_scheme: uniform
+  assign_scheme: adaptive
   exp_path: exp
   logger_level: INFO
   log_steps: 10
 assignment:
-  assign_cycle: 5 # times for profiling to get bandwidth between workers
+  assign_cycle: 100
   profile_data_length: 200 
   group_size: 100
   coe_lambda: 0.5
