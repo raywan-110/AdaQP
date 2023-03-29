@@ -5,7 +5,7 @@ declare -a all_models=(gcn sage)
 declare -a servers_configs=(2 2)
 declare -a workers_per_server_configs=(1 2)
 # netowrk configurations
-IP=10.28.1.27
+IP=127.0.0.1 # (use your own IP address)
 PORT=1234
 RANK=0
 # loop through all experiment configurations

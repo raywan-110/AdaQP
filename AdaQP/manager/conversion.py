@@ -25,7 +25,6 @@ def convert_partition(part_dir: str, dataset: str) -> Tuple[dgl.DGLHeteroGraph, 
     degree_ids = g.ndata['orig_id']
     nodes_feats['in_degrees'] = in_degrees_global[degree_ids]
     nodes_feats['out_degrees'] = out_degrees_global[degree_ids]
-    # TODO handle these settings
     is_bidirected = False
     if all(nodes_feats['in_degrees'] == nodes_feats['out_degrees']):
         is_bidirected = True

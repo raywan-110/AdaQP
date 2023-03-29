@@ -47,8 +47,9 @@ def SAGE_aggregation(graph: DGLHeteroGraph, feats: Tensor, mode: ProprogationMod
                 raise ValueError(f'Invalid aggregator_type {aggregator_type}')
         elif mode == ProprogationMode.Backward:
             if aggregator_type == 'mean':
-                norm = graph.ndata['out_degrees'].float().clamp(min=1).pow(-1).view(-1, 1)
-                feats = feats * norm
+                norm = graph.ndata['out_degrees'].float().clamp(min=1)
+                norm = torch.pow(norm, -1)
+                feats = feats * norm.view(-1, 1)
                 graph.srcdata['h'] = feats
                 graph.update_all(aggregate_fn, fn.sum(msg='m', out='neigh'))
                 h_neigh = graph.dstdata['neigh']
@@ -76,17 +77,6 @@ class DistAggConv(Function):
             return full_graph_propagation(ctx, local_messages, graph, layer, is_train, ProprogationMode.Forward, DistAggConv.__name__)
         else:
             return decomposed_graph_propagation(ctx, local_messages, graph, layer, is_train, ProprogationMode.Forward, DistAggConv.__name__)
-        # # exchange messages (features/embeddings)
-        # send_messages = local_messages[engine.ctx.total_send_idx]
-        # remote_messages = msg_all2all_GLOO(send_messages, f'forward{layer}', is_train)
-        # full_messages = torch.cat([local_messages, remote_messages], dim=0)
-        # # aggregate messages
-        # with engine.ctx.timer.record(f'forward{layer}_full_aggregation'):
-        #     rst = GCN_aggregation(graph, full_messages, mode=ProprogationMode.Forward)
-        # len_local = local_messages.shape[0]
-        # return_messages = rst[:len_local]
-        # ctx.saved = layer
-        # return return_messages
     
     @staticmethod
     @custom_bwd
@@ -97,16 +87,6 @@ class DistAggConv(Function):
             return full_graph_propagation(ctx, local_messages, engine.ctx.bwd_graph, layer, True, ProprogationMode.Backward, DistAggConv.__name__)
         else:
             return decomposed_graph_propagation(ctx, local_messages, engine.ctx.bwd_graph, layer, True, ProprogationMode.Backward, DistAggConv.__name__)
-        # send_messages = local_messages[engine.ctx.total_send_idx]
-        # # exchange messages (embedding gradients)
-        # remote_messages = msg_all2all_GLOO(send_messages, f'backward{layer}', is_train=True)
-        # full_messages = torch.cat([local_messages, remote_messages], dim=0)
-        # # aggregate messages
-        # with engine.ctx.timer.record(f'backward{layer}_full_aggregation'):
-        #     rst = GCN_aggregation(engine.ctx.bwd_graph, full_messages, mode=ProprogationMode.Backward)
-        # len_local = local_messages.shape[0]
-        # return_gradients = rst[:len_local]
-        # return return_gradients, None, None, None
 
 class DistAggSAGE(Function):
     '''
@@ -119,16 +99,6 @@ class DistAggSAGE(Function):
             return full_graph_propagation(ctx, local_messages, graph, layer, is_train, ProprogationMode.Forward, DistAggSAGE.__name__)
         else:
             return decomposed_graph_propagation(ctx, local_messages, graph, layer, is_train, ProprogationMode.Forward, DistAggSAGE.__name__)
-        # exchange messages (features/embeddings)
-        # send_messages = local_messages[engine.ctx.total_send_idx]
-        # remote_messages = msg_all2all_GLOO(send_messages, f'forward{layer}', is_train)
-        # full_messages = torch.cat([local_messages, remote_messages], dim=0)
-        # with engine.ctx.timer.record(f'forward{layer}_full_aggregation'):
-        #     rst = SAGE_aggregation(graph, full_messages, mode=ProprogationMode.Forward, aggregator_type=engine.ctx.agg_type)
-        # len_local = local_messages.shape[0]
-        # return_messages = rst[:len_local]
-        # ctx.saved = layer
-        # return return_messages
     
     @staticmethod
     @custom_bwd
@@ -139,16 +109,6 @@ class DistAggSAGE(Function):
             return full_graph_propagation(ctx, local_messages, engine.ctx.bwd_graph, layer, True, ProprogationMode.Backward, DistAggSAGE.__name__)
         else:
             return decomposed_graph_propagation(ctx, local_messages, engine.ctx.bwd_graph, layer, True, ProprogationMode.Backward, DistAggSAGE.__name__)
-        # send_messages = local_messages[engine.ctx.total_send_idx]
-        # # exhange messages (embedding gradients)
-        # remote_messages = msg_all2all_GLOO(send_messages, f'backward{layer}', is_train=True)
-        # full_messages = torch.cat([local_messages, remote_messages], dim=0)
-        # # aggregate messages
-        # with engine.ctx.timer.record(f'backward{layer}_full_aggregation'):
-        #     rst = SAGE_aggregation(engine.ctx.bwd_graph, full_messages, mode=ProprogationMode.Backward, aggregator_type=engine.ctx.agg_type)
-        # len_local = local_messages.shape[0]
-        # return_gradients = rst[:len_local]
-        # return return_gradients, None, None, None
 
 '''
 *************************************************
@@ -214,7 +174,6 @@ def decomposed_graph_propagation(ctx, local_messages: Tensor, graph: Union[DGLHe
                 central_rst = SAGE_aggregation(graph.central_graph, central_messages, mode=mode, aggregator_type=engine.ctx.agg_type)[:engine.ctx.num_central]
             else:
                 raise ValueError(f'Invalid class_name {class_name}')
-    # TODO check if need to wait dequantization
     remote_messages = response.get() # block until completion of async messages exchange
     marginal_messages = torch.concat([messages_from_central, local_messages[engine.ctx.num_central:engine.ctx.num_inner], remote_messages], dim=0)
     with engine.ctx.timer.record(f'{name}_marginal_aggregation'):

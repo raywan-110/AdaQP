@@ -63,35 +63,35 @@ class DistSAGEConv(nn.Module):
 class DistSAGE(nn.Module):
     def __init__(self, in_feats: int, h_feats: int, num_classes: int, num_layers: int, drop_rate: float, use_norm: bool = True,  aggregator_type: str = 'mean'):
         super(DistSAGE, self).__init__()
-        self.convs = nn.ModuleList()
-        self.convs.append(DistSAGEConv(in_feats, h_feats, aggregator_type=aggregator_type))
+        self.sages = nn.ModuleList()
+        self.sages.append(DistSAGEConv(in_feats, h_feats, aggregator_type=aggregator_type))
         if use_norm:
             self.norms = nn.ModuleList()
             self.norms.append(nn.LayerNorm(h_feats))
         # append hidden layers
         for _ in range(num_layers - 2):
-            self.convs.append(DistSAGEConv(h_feats, h_feats, aggregator_type=aggregator_type))
+            self.sages.append(DistSAGEConv(h_feats, h_feats, aggregator_type=aggregator_type))
             if use_norm:
                 self.norms.append(nn.LayerNorm(h_feats))
         # append last layer
-        self.convs.append(DistSAGEConv(h_feats, num_classes, aggregator_type=aggregator_type))
+        self.sages.append(DistSAGEConv(h_feats, num_classes, aggregator_type=aggregator_type))
         # set drop rate
         self.drop_rate = drop_rate
 
     def reset_parameters(self):
-        for conv in self.convs:
-            conv.reset_parameters()
+        for sages in self.sages:
+            sages.reset_parameters()
         if hasattr(self, 'norms'):
             for bn in self.norms:
                 bn.reset_parameters()
 
     def forward(self, g: Union[DGLHeteroGraph, DecompGraph], feats: Tensor) -> Tensor:
-        for i, conv in enumerate(self.convs[:-1]):
-            feats = conv(feats, g, i)
+        for i, sages in enumerate(self.sages[:-1]):
+            feats = sages(feats, g, i)
             feats = F.dropout(feats, p=self.drop_rate, training=self.training)
             if hasattr(self, 'norms'):
                 feats = self.norms[i](feats)
             feats = F.relu(feats)
-        feats = self.convs[-1](feats, g, i + 1)
+        feats = self.sages[-1](feats, g, i + 1)
 
         return feats

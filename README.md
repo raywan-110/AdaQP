@@ -28,7 +28,7 @@ Accepted by MLSys 2023
 `-- scripts                # training scripts
 ```
 
-Please note that we only provide `./gurobi_license/` for Artifact Evaluation purposes. We will remove the lisense file when releasing the code publicly due to privacy concerns.
+Please note that we only provide `./gurobi_license/` for Artifact Evaluation purposes. **The lisense file will be removed after releasing the code publicly due to privacy concerns.** Your can apply your own lisence by following the instructions in [gurobi-licenses application](https://www.gurobi.com/academia/academic-program-and-licenses/).
 
 ## Setup
 
@@ -96,7 +96,7 @@ NUM_SERVERS=1
 WORKERS_PER_SERVER=4
 RANK=0
 # network configurations
-IP=XX.XX.X.XX
+IP=127.0.0.1
 PORT=8888
 # run the script
 torchrun --nproc_per_node=$WORKERS_PER_SERVER --nnodes=$NUM_SERVERS --node_rank=$RANK --master_addr=$IP --master_port=$PORT main.py \
@@ -118,7 +118,7 @@ Worker 0 | Total Time 1.0919s | Comm Time 0.7889s | Quant Time 0.0000s | Agg Tim
 INFO:trainer:Epoch 00030 | Loss 0.0000 | Train Acc 93.33% | Val Acc 93.81% | Test Acc 93.91%
 ```
 
-Besides, the environment variable `GLOO_SOCKET_IFNAME` may need to be set for multi-node training. 
+For multi-node multi-GPU training, copy the source code to all machines and launch all the scripts respectively. Besides, the environment variable `GLOO_SOCKET_IFNAME` may need to be set as the inferfaces name.
 
 ### Training Arguments
 
