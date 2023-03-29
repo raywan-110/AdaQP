@@ -25,10 +25,10 @@ Accepted by MLSys 2023
 |-- exp                   # experiment results
 |-- graph_degrees         # global degrees of original graphs
 |-- gurobi_license        # license file for Gurobi solver
-`-- scripts                # training scripts
+|-- scripts               # training scripts
 ```
 
-Please note that we only provide `./gurobi_license/` for Artifact Evaluation purposes. **The lisense file will be removed after releasing the code publicly due to privacy concerns.** Your can apply your own lisence by following the instructions in [gurobi-licenses application](https://www.gurobi.com/academia/academic-program-and-licenses/).
+`data`, `exp`, `graph_degrees`, will be created after lauching the scripts. Beside, note that we only provide `./gurobi_license/` for Artifact Evaluation purposes. **The lisense file will be removed after releasing the code publicly due to privacy concerns.** Your can apply for your own lisence by following the instructions in [gurobi-licenses application](https://www.gurobi.com/academia/academic-program-and-licenses/).
 
 ## Setup
 
@@ -49,6 +49,7 @@ Please note that we only provide `./gurobi_license/` for Artifact Evaluation pur
 - [OGB 1.3.3](https://ogb.stanford.edu/docs/home/)
 - [PuLP 2.6.0](https://github.com/coin-or/pulp)
 - [Gurobi 9.5.2](https://anaconda.org/Gurobi/gurobi)
+- Quant_cuda 0.0.0 (customized quantization/de-quantization kernels)
 
 ### Installation
 
