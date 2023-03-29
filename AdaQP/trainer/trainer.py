@@ -44,18 +44,16 @@ class Trainer(object):
         model_name = runtime_config['model_name']
         log_level = runtime_config['logger_level']
         exp_path = f'{exp_path}/{dataset}/{num_parts}part/{model_name}'
+        # set up logger
+        self.logger = setup_logger(f'trainer.log', log_level, with_file=True)
         # set up communicator
         self._set_communicator()
+        # set up graph engine
+        self._set_engine()
         # set exp_path 
         if not os.path.exists(exp_path) and comm.get_rank() == 0:
             os.makedirs(exp_path)
         self.exp_path = exp_path
-        # set up logger
-        self.logger = setup_logger(f'{exp_path}/trainer.log', log_level, with_file=True)
-        self.logger.info(repr(self.communicator))
-        # set up graph engine
-        self._set_engine()
-        self.logger.info(repr(self.engine))
         # set up comm buffer
         self._set_buffer()
         # set up assigner
@@ -83,6 +81,7 @@ class Trainer(object):
         runtime_config = self.config['runtime']
         # setup
         self.communicator = comm(runtime_config['backend'], runtime_config['init_method'])
+        self.logger.info(repr(self.communicator))
         
     
     def _set_engine(self):
@@ -103,6 +102,8 @@ class Trainer(object):
             # init the copy buffer
             engine.ctx.graph.init_copy_buffers(data_config['num_feats'], model_config['hidden_dim'], model_config['num_layers'], engine.ctx.device)
             engine.ctx.bwd_graph.init_copy_buffers(data_config['num_feats'], model_config['hidden_dim'], model_config['num_layers'], engine.ctx.device)
+        self.logger.info(repr(self.engine))
+        
     
     def _set_buffer(self):
         # fetch corresponding config
