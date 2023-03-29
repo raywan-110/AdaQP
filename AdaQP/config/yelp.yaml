@@ -1,0 +1,29 @@
+data:
+  name: yelp
+  dataset_path: data/dataset
+  partition_path: data/part_data
+  num_feats: 300
+  num_classes: 100
+  is_multilabel: True
+model:
+  num_layers: 3
+  hidden_dim: 256
+  dropout_rate: 0.5
+  use_norm: true
+  aggregator_type: mean # default setting for graphsage
+runtime:
+  model_name: gcn
+  learning_rate: 0.01
+  weight_decay: 0
+  num_epoches: 1000
+  mode: AdaQP
+  assign_scheme: adaptive
+  exp_path: exp
+  logger_level: INFO
+  log_steps: 10
+assignment:
+  assign_cycle: 200
+  profile_data_length: 200 
+  group_size: 1000
+  coe_lambda: 0.5
+  assign_bits: 8 # default uniform bits for quantization when no traced data is collected
