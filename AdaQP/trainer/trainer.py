@@ -4,6 +4,7 @@ import yaml
 import torch
 from argparse import Namespace
 from typing import Dict, Tuple
+from multiprocessing import Lock
 
 from .runtime_util import *
 from ..helper import DistGNNType, BitType
@@ -44,8 +45,10 @@ class Trainer(object):
         model_name = runtime_config['model_name']
         log_level = runtime_config['logger_level']
         exp_path = f'{exp_path}/{dataset}/{num_parts}part/{model_name}'
-        if not os.path.exists(exp_path):
-            os.makedirs(exp_path)
+        file_lock = Lock()
+        with file_lock:
+            if not os.path.exists(exp_path):
+                os.makedirs(exp_path)
         self.exp_path = exp_path
         # set up logger
         self.logger = setup_logger(f'{exp_path}/trainer.log', log_level, with_file=True)
@@ -153,7 +156,7 @@ class Trainer(object):
         sync_model(self.model)
         # set optimizer and criterion
         optimizer = torch.optim.Adam(self.model.parameters(), lr=runtime_config['learning_rate'], weight_decay=runtime_config['weight_decay'])
-        criterion = torch.nn.BCEWithLogitsLoss() if is_multilabel else torch.nn.CrossEntropyLoss()
+        criterion = torch.nn.BCEWithLogitsLoss(reduction='sum') if is_multilabel else torch.nn.CrossEntropyLoss(reduction='sum')
         # record time
         assign_time = []        
         train_time = []

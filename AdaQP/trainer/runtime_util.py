@@ -177,6 +177,7 @@ def aggregate_F1(loss: Tensor, metrics: List[Union[float, int]], epoch: int) -> 
         if denominator == 0:
             denominator = 1
         return numerator / denominator
+    metrics = torch.FloatTensor(metrics)
     comm.all_reduce_sum(metrics)
     # calculate precision and recall
     (train_precision, val_precision, test_precision) = \
@@ -193,7 +194,7 @@ def aggregate_F1(loss: Tensor, metrics: List[Union[float, int]], epoch: int) -> 
     test_f1_micro = _safe_divide(2 * test_precision * test_recall, test_precision + test_recall)
     epoch_metrics = [train_f1_micro, val_f1_micro, test_f1_micro]
     engine.ctx.recorder.add_new_metrics(epoch, epoch_metrics)
-    return f'Epoch {epoch:05d} | Loss {loss.item():.4f} | Train F1 {train_f1_micro * 100:.2f} | Val F1 {val_f1_micro * 100:.2f} | Test F1 {test_f1_micro * 100:.2f}'
+    return f'Epoch {epoch:05d} | Loss {loss.item():.4f} | Train F1 micro {train_f1_micro * 100:.2f}% | Val F1 micro {val_f1_micro * 100:.2f}% | Test F1 micro {test_f1_micro * 100:.2f}%'
 
     
     

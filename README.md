@@ -37,7 +37,7 @@ Please note that we only provide `./gurobi_license/` for Artifact Evaluation pur
 #### Hardware Dependencies
 
 - X86-CPU machines, each with 256 GB host memory (recommended).  
-- Nvidia GPUs (at least 16 GB each)
+- Nvidia GPUs (32 GB each)
 
 #### Software Dependencies
 
@@ -84,7 +84,7 @@ Before conducting training, run `script/partition/partition_<dataset>.sh` to par
 python graph_partition.py --dataset reddit --partition_size 4
 ```
 
-For multi-node multi-GPU training, please make sure that the corresponding subgraphs are stored in the same directory on all machines. For example, directory hierarchy like `./data/part_data/reddit/4part/part0`, `./data/part_data/reddit/4part/part1` on **machine A** and `./data/part_data/reddit/4part/part2`, `./data/part_data/reddit/4part/part3` on **machine B** can support lauching two training processes on each machine. Besides, data in `./graph_degrees` should also be copied to all machines.
+For multi-node multi-GPU training, please make sure that the corresponding subgraphs are stored in the same directory on all machines. For example, directory hierarchy like `./data/part_data/reddit/4part/part0`, `./data/part_data/reddit/4part/part1` on **machine A** and `./data/part_data/reddit/4part/part2`, `./data/part_data/reddit/4part/part3` on **machine B** can support lauching two training processes on each machine. Besides, `./graph_degrees` should also be copied to all machines.
 
 ### Train the Model
 
@@ -93,7 +93,7 @@ Run `scripts/example/<dataset>_vanilla.sh` and `scripts/example/<dataset>_adaqp.
 ```bash
 # variables
 NUM_SERVERS=1
-WORKERS_PER_SERVER=2
+WORKERS_PER_SERVER=4
 RANK=0
 # network configurations
 IP=XX.XX.X.XX
@@ -108,6 +108,16 @@ torchrun --nproc_per_node=$WORKERS_PER_SERVER --nnodes=$NUM_SERVERS --node_rank=
 --mode Vanilla \
 --logger_level INFO
 ```
+The output in the console will be like:
+
+```bash
+INFO:trainer:Epoch 00010 | Loss 0.0000 | Train Acc 85.77% | Val Acc 87.00% | Test Acc 86.75%
+Worker 0 | Total Time 1.1635s | Comm Time 0.8469s | Quant Time 0.0000s | Agg Time 0.2060s | Reduce Time 0.0466s
+INFO:trainer:Epoch 00020 | Loss 0.0000 | Train Acc 92.37% | Val Acc 93.00% | Test Acc 92.98%
+Worker 0 | Total Time 1.0919s | Comm Time 0.7889s | Quant Time 0.0000s | Agg Time 0.1786s | Reduce Time 0.0690s
+INFO:trainer:Epoch 00030 | Loss 0.0000 | Train Acc 93.33% | Val Acc 93.81% | Test Acc 93.91%
+```
+
 Besides, the environment variable `GLOO_SOCKET_IFNAME` may need to be set for multi-node training. 
 
 ### Training Arguments
@@ -125,10 +135,14 @@ Please refer to `main.py` for more details. All offline default configurations f
 
 ### Reproduce Experiments
 
-Reproduce the core experiments (throughput, accuracy, time breakdown) by running `scripts/<dataset>_all.sh`. The experiment results will be saved to `./exp/<dataset>` directory.
+Reproduce the core experiments (throughput, accuracy, time breakdown) by running `scripts/<dataset>_all.sh`. The experiment results will be saved to `./exp/<dataset>` directory. The variable `RANK` in the scripts should be adjusted on different machines accordingly.
+
+### Experiment Customization
+
+Adjust configurations in `AdaQP/config/*yaml` to customize dataset, model, training hyperparameter, bit-width assignment settings or add new configurations; adjust runtime arguments in `scripts/*` to customize graph partitions numbers, optional GPUs or machines for training, bit-width assignment strategies and training methods (AdaQP and its variants). For example, set argument `--assignment` to `random` to use random bit-width assignment, or set argument `--mode` to `AdaQP-q` to use AdaQP with only message quantization.
 
 ## License
 
 Copyright (c) 2023 ray wan. All rights reserved.
 
-Licensed under the MIT license.
+Licensed under the MIT License.

@@ -4,7 +4,7 @@ data:
   partition_path: data/part_data
   num_feats: 200
   num_classes: 107
-  is_multilabel: false
+  is_multilabel: True
 model:
   num_layers: 3
   hidden_dim: 256

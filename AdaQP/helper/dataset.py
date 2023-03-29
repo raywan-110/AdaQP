@@ -50,7 +50,7 @@ def download_url(url: str, folder: str, log: bool = True,
 class AmazonProducts(DGLDataset):
     def __init__(self, raw_dir: str=None, force_reload: bool=False, verbose: bool=False):
         _url = 'https://docs.google.com/uc?export=download&id={}&confirm=t'
-        super(AmazonProducts, self).__init__(name='amazon2m', url=_url, raw_dir=raw_dir, force_reload=force_reload, verbose=verbose)
+        super(AmazonProducts, self).__init__(name='amazonProducts', url=_url, raw_dir=raw_dir, force_reload=force_reload, verbose=verbose)
     
     def download(self):
         adj_full_id = '17qhNA8H1IpbkkR-T2BmPQm8QNW5do-aa'
@@ -85,7 +85,7 @@ class AmazonProducts(DGLDataset):
             class_map = json.load(f)
             for key, item in class_map.items():
                 ys[int(key)] = item
-        labels = torch.tensor(ys, dtype=torch.int64)
+        labels = torch.tensor(ys, dtype=torch.float32)
         # train/val/test indices
         with open(os.path.join(self.raw_path, 'role.json')) as f:
             role = json.load(f)

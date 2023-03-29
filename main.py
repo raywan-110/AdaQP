@@ -9,7 +9,7 @@ def main():
     parser.add_argument('--backend', type=str, default='gloo',help='backend for distributed training')
     parser.add_argument('--init_method', type=str, default='env://',help='init method for distributed training')
     parser.add_argument('--model_name', type=str, default='gcn', help='model for training')
-    parser.add_argument('--mode', type=str, default='AdaQP', help='running methods. optional modes: [Vanilla, AdaQP, AdaQP-q, AdaQP-p]')
+    parser.add_argument('--mode', type=str, default='AdaQP', help='training methods. optional modes: [Vanilla, AdaQP, AdaQP-q, AdaQP-p]')
     parser.add_argument('--assign_scheme', type=str, default='adaptive', help='bit-width assignment scheme. optional schemes: [adaptive, random, uniform]')
     parser.add_argument('--logger_level', type=str, default='INFO', help='logger level')
     parser.add_argument('--use_parallel', action='store_true')
