@@ -12,7 +12,6 @@ def main():
     parser.add_argument('--mode', type=str, default='AdaQP', help='training methods. optional modes: [Vanilla, AdaQP, AdaQP-q, AdaQP-p]')
     parser.add_argument('--assign_scheme', type=str, default='adaptive', help='bit-width assignment scheme. optional schemes: [adaptive, random, uniform]')
     parser.add_argument('--logger_level', type=str, default='INFO', help='logger level')
-    parser.add_argument('--use_parallel', action='store_true')
     args = parser.parse_args()
     # init the trainer
     trainer = Trainer(args)

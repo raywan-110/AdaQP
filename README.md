@@ -130,7 +130,6 @@ Core training arguments are listed below:
 - `--model_name`: the GNN model (only GCN and GraphSAGE are supported at this moment)
 - `--mode`: the training method (Vanilla, AdaQP or variants of AdaQP)
 - `--assignment`: bit-width assignment scheme used by AdaQP's Assigner
-- `--use_parallel`: whether to use parallelization
 
 Please refer to `main.py` for more details. All offline default configurations for datasets, models, and bit-width assignment can be found in `./AdaQP/config/`, adjust them to customize your settings.
 
