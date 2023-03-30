@@ -79,7 +79,7 @@ We use Reddit, Yelp, ogbn-products and AmazonProducts for evaluation. All datase
 
 ### Partition the Graph
 
-Before conducting training, run `script/partition/partition_<dataset>.sh` to partition the coressponding graph into several subgraphs, and store them into `./data/part_data/<dataset>` by default. Customized partitioning methods are also supported. For example, to partition the Reddit graph into 4 subgraphs, run
+Before conducting training, run `script/partition/partition_<dataset>.sh` to partition the coressponding graph into several subgraphs, and store them into `./data/part_data/<dataset>` by default. Customized partitioning are also supported. For example, to partition the Reddit graph into 4 subgraphs, run
 
 ```bash
 python graph_partition.py --dataset reddit --partition_size 4
